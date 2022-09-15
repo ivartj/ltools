@@ -11,35 +11,39 @@ enum ValueType {
     Base64,
 }
 
-struct EventReceiver<'a, W: Write> {
+struct EventReceiver<W: Write> {
     attrtype: String,
     attrtypepos: usize,
     ismatch: bool,
-    dest: &'a mut W,
+    dest: W,
     valuetype: ValueType,
-    b64: base64::Encoder,
 }
 
-impl<'a, W: Write> EventReceiver<'a, W> {
-    fn new(attrtype: String, dest: &'a mut W) -> EventReceiver<'a, W> {
+impl<W: Write> EventReceiver<W> {
+    fn new(attrtype: String, dest: W) -> EventReceiver<W> {
         EventReceiver{
             attrtype,
             attrtypepos: 0,
             ismatch: true, // true until non-matching char is seen
             dest,
-            b64: base64::Encoder::new(),
             valuetype: ValueType::Text,
         }
     }
 }
 
-impl<'a, W: Write> ReceiveEvent for EventReceiver<'a, W> {
+impl<W: Write> Drop for EventReceiver<W> {
+    fn drop(&mut self) {
+        self.dest.flush().unwrap();
+    }
+}
+
+impl<W: Write> ReceiveEvent for EventReceiver<W> {
     fn receive_event(&mut self, event: Event) {
         match event {
             Event::TypeChar(c) => {
                 if self.ismatch {
                     self.ismatch = self.attrtypepos < self.attrtype.len()
-                        && self.attrtype.as_bytes().get(self.attrtypepos).unwrap() == &(c as u8);
+                        && self.attrtype.as_bytes()[self.attrtypepos].to_ascii_lowercase() == (c as u8).to_ascii_lowercase();
                     self.attrtypepos += 1;
                 }
             },
@@ -50,20 +54,15 @@ impl<'a, W: Write> ReceiveEvent for EventReceiver<'a, W> {
                     self.valuetype = ValueType::Text;
                 }
             },
-            Event::ValueBase64(code) => {
+            Event::ValueBase64(_code) => {
                 if self.ismatch {
-                    self.b64.write(code.as_bytes()).unwrap(); // todo
-                    self.dest.write(self.b64.get_buffer()).unwrap(); // todo
-                    self.b64.clear_buffer();
-                    self.valuetype = ValueType::Base64;
+                    todo!()
                 }
             },
             Event::ValueFinish => {
                 if self.ismatch {
                     if self.valuetype == ValueType::Base64 {
-                        self.b64.flush().unwrap(); // todo
-                        self.dest.write(self.b64.get_buffer()).unwrap(); // todo
-                        self.b64.clear_buffer();
+                        todo!()
                     }
                     self.dest.write(b"\n").unwrap(); // todo
                 }
@@ -76,12 +75,11 @@ impl<'a, W: Write> ReceiveEvent for EventReceiver<'a, W> {
 
 fn main() -> Result<()> {
     let attrtype = std::env::args().nth(1).unwrap();
-    let mut bufwriter = BufWriter::new(stdout());
-    let mut event_receiver = EventReceiver::new(attrtype, &mut bufwriter);
-    let mut lexer = Lexer::new(&mut event_receiver);
-    let mut unfolder = Unfolder::new(&mut lexer);
-    let mut crstripper = CrStripper::new(&mut unfolder);
+    let bufwriter = BufWriter::new(stdout());
+    let event_receiver = EventReceiver::new(attrtype, bufwriter);
+    let lexer = Lexer::new(event_receiver);
+    let unfolder = Unfolder::new(lexer);
+    let mut crstripper = CrStripper::new(unfolder);
     copy(&mut stdin(), &mut crstripper)?;
-    bufwriter.flush()?;
     Ok(())
 }

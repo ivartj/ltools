@@ -24,13 +24,13 @@ pub trait ReceiveEvent {
     fn receive_event<'a>(&mut self, event: Event<'a>);
 }
 
-pub struct Lexer<'a, R> {
+pub struct Lexer<R> {
     state: State,
-    event_receiver: &'a mut R,
+    event_receiver: R,
 }
 
-impl<'a, R: ReceiveEvent> Lexer<'a, R> {
-    pub fn new(event_receiver: &'a mut R) -> Lexer<'a, R> {
+impl<R: ReceiveEvent> Lexer<R> {
+    pub fn new(event_receiver: R) -> Lexer<R> {
         Lexer{
             state: State::LineStart,
             event_receiver,
@@ -39,6 +39,14 @@ impl<'a, R: ReceiveEvent> Lexer<'a, R> {
 
     fn emit(&mut self, event: Event) {
         self.event_receiver.receive_event(event);
+    }
+
+    pub fn get_ref(&self) -> &R {
+        &self.event_receiver
+    }
+
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.event_receiver
     }
 }
 
@@ -62,7 +70,7 @@ macro_rules! BASE64_CHAR {
     () => { b'+' | b'/' | b'=' | DIGIT!() | ALPHA!() };
 }
 
-impl<'a, R: ReceiveEvent> Write for Lexer<'a, R> {
+impl<R: ReceiveEvent> Write for Lexer<R> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let mut value_start = 0;
         for (i, c) in buf.iter().enumerate() {
@@ -149,37 +157,38 @@ mod tests {
     use super::*;
 
     impl<'z> ReceiveEvent for Vec<String> {
-        fn receive_event<'a>(&mut self, event: Event<'a>) {
+        fn receive_event(&mut self, event: Event) {
             self.push(format!("{:?}", event));
         }
     }
 
     #[test]
     fn it_works() {
-        let mut vec = Vec::new();
-        let mut lexer = Lexer::new(&mut vec);
+        let vec = Vec::new();
+        let mut lexer = Lexer::new(vec);
         lexer.write(b"\
                     dn:cn=admin,ou=sa,o=system\n\
                     cn: admin\n\
                     sn:: MO4Z2VzdMO4bA==\n\
                     ").expect("success");
-        let mut iter = vec.into_iter();
-        assert_eq!(iter.next(), Some(String::from("TypeChar('d')")));
-        assert_eq!(iter.next(), Some(String::from("TypeChar('n')")));
-        assert_eq!(iter.next(), Some(String::from("TypeFinish")));
-        assert_eq!(iter.next(), Some(String::from("ValueText(\"cn=admin,ou=sa,o=system\")")));
-        assert_eq!(iter.next(), Some(String::from("ValueFinish")));
+        let mut iter = lexer.get_ref().iter();
+        assert_eq!(iter.next(), Some(&String::from("TypeChar('d')")));
+        assert_eq!(iter.next(), Some(&String::from("TypeChar('n')")));
+        assert_eq!(iter.next(), Some(&String::from("TypeFinish")));
+        assert_eq!(iter.next(), Some(&String::from("ValueText(\"cn=admin,ou=sa,o=system\")")));
+        assert_eq!(iter.next(), Some(&String::from("ValueFinish")));
 
-        assert_eq!(iter.next(), Some(String::from("TypeChar('c')")));
-        assert_eq!(iter.next(), Some(String::from("TypeChar('n')")));
-        assert_eq!(iter.next(), Some(String::from("TypeFinish")));
-        assert_eq!(iter.next(), Some(String::from("ValueText(\"admin\")")));
-        assert_eq!(iter.next(), Some(String::from("ValueFinish")));
+        assert_eq!(iter.next(), Some(&String::from("TypeChar('c')")));
+        assert_eq!(iter.next(), Some(&String::from("TypeChar('n')")));
+        assert_eq!(iter.next(), Some(&String::from("TypeFinish")));
+        assert_eq!(iter.next(), Some(&String::from("ValueText(\"admin\")")));
+        assert_eq!(iter.next(), Some(&String::from("ValueFinish")));
 
-        assert_eq!(iter.next(), Some(String::from("TypeChar('s')")));
-        assert_eq!(iter.next(), Some(String::from("TypeChar('n')")));
-        assert_eq!(iter.next(), Some(String::from("TypeFinish")));
-        assert_eq!(iter.next(), Some(String::from("ValueBase64(\"MO4Z2VzdMO4bA==\")")));
-        assert_eq!(iter.next(), Some(String::from("ValueFinish")));
+        assert_eq!(iter.next(), Some(&String::from("TypeChar('s')")));
+        assert_eq!(iter.next(), Some(&String::from("TypeChar('n')")));
+        assert_eq!(iter.next(), Some(&String::from("TypeFinish")));
+        assert_eq!(iter.next(), Some(&String::from("ValueBase64(\"MO4Z2VzdMO4bA==\")")));
+        assert_eq!(iter.next(), Some(&String::from("ValueFinish")));
     }
 }
+

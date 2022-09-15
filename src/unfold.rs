@@ -8,18 +8,18 @@ enum State {
     Newline
 }
 
-pub struct Unfolder<'a, W> {
-    inner: &'a mut W,
+pub struct Unfolder<W> {
+    inner: W,
     state: State,
 }
 
-impl<'a, W: Write> Unfolder<'a, W> {
-    pub fn new(inner: &'a mut W) -> Unfolder<'a, W> {
+impl<W: Write> Unfolder<W> {
+    pub fn new(inner: W) -> Unfolder<W> {
         Unfolder{ inner, state: State::LineStart }
     }
 }
 
-impl<'a, W: Write> Write for Unfolder<'a, W> {
+impl<W: Write> Write for Unfolder<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let mut write_from: usize = 0;
         for (i, c) in buf.iter().enumerate() {

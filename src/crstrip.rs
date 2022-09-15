@@ -7,18 +7,18 @@ enum State {
     Text,
 }
 
-pub struct CrStripper<'a, W> {
-    inner: &'a mut W,
+pub struct CrStripper<W> {
+    inner: W,
     state: State,
 }
 
-impl<'a, W: Write> CrStripper<'a, W> {
-    pub fn new(inner: &'a mut W) -> CrStripper<'a, W> {
+impl<W: Write> CrStripper<W> {
+    pub fn new(inner: W) -> CrStripper<W> {
         CrStripper{ inner, state: State::Text }
     }
 }
 
-impl<'a, W: Write> Write for CrStripper<'a, W> {
+impl<W: Write> Write for CrStripper<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let mut write_from: usize = 0;
         for (i, c) in buf.iter().enumerate() {
