@@ -1,12 +1,23 @@
 use std::io::{stdin, stdout, Result, copy, Write, BufWriter};
 use ltools::unfold::Unfolder;
+use ltools::crstrip::CrStripper;
 use ltools::lexer::{ Lexer, Event, ReceiveEvent };
+use ltools::base64;
+
+#[derive(PartialEq)]
+enum ValueType {
+    None,
+    Text,
+    Base64,
+}
 
 struct EventReceiver<'a, W: Write> {
     attrtype: String,
     attrtypepos: usize,
     ismatch: bool,
     dest: &'a mut W,
+    valuetype: ValueType,
+    b64: base64::Encoder,
 }
 
 impl<'a, W: Write> EventReceiver<'a, W> {
@@ -16,6 +27,8 @@ impl<'a, W: Write> EventReceiver<'a, W> {
             attrtypepos: 0,
             ismatch: true, // true until non-matching char is seen
             dest,
+            b64: base64::Encoder::new(),
+            valuetype: ValueType::Text,
         }
     }
 }
@@ -30,20 +43,33 @@ impl<'a, W: Write> ReceiveEvent for EventReceiver<'a, W> {
                     self.attrtypepos += 1;
                 }
             },
-            Event::TypeFinish => (),
+            Event::TypeFinish => self.valuetype = ValueType::None,
             Event::ValueText(text) => {
                 if self.ismatch {
                     self.dest.write(text.as_bytes()).unwrap(); // todo
+                    self.valuetype = ValueType::Text;
+                }
+            },
+            Event::ValueBase64(code) => {
+                if self.ismatch {
+                    self.b64.write(code.as_bytes()).unwrap(); // todo
+                    self.dest.write(self.b64.get_buffer()).unwrap(); // todo
+                    self.b64.clear_buffer();
+                    self.valuetype = ValueType::Base64;
                 }
             },
             Event::ValueFinish => {
                 if self.ismatch {
+                    if self.valuetype == ValueType::Base64 {
+                        self.b64.flush().unwrap(); // todo
+                        self.dest.write(self.b64.get_buffer()).unwrap(); // todo
+                        self.b64.clear_buffer();
+                    }
                     self.dest.write(b"\n").unwrap(); // todo
                 }
                 self.ismatch = true;
                 self.attrtypepos = 0;
             }
-            _ => todo!(),
         }
     }
 }
@@ -54,7 +80,8 @@ fn main() -> Result<()> {
     let mut event_receiver = EventReceiver::new(attrtype, &mut bufwriter);
     let mut lexer = Lexer::new(&mut event_receiver);
     let mut unfolder = Unfolder::new(&mut lexer);
-    copy(&mut stdin(), &mut unfolder)?;
+    let mut crstripper = CrStripper::new(&mut unfolder);
+    copy(&mut stdin(), &mut crstripper)?;
     bufwriter.flush()?;
     Ok(())
 }

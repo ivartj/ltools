@@ -130,6 +130,12 @@ impl<'a, R: ReceiveEvent> Write for Lexer<'a, R> {
                 },
             };
         }
+
+        match self.state {
+            State::SafeStringValue => self.emit(Event::ValueText(unsafe { from_utf8_unchecked(&buf[value_start..]) })),
+            State::Base64Value => self.emit(Event::ValueBase64(unsafe { from_utf8_unchecked(&buf[value_start..]) })),
+            _ => (),
+        }
         Ok(buf.len())
     }
 
