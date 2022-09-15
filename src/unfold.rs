@@ -8,13 +8,13 @@ enum State {
     Newline
 }
 
-struct Unfolder<'a, W> {
+pub struct Unfolder<'a, W> {
     inner: &'a mut W,
     state: State,
 }
 
 impl<'a, W: Write> Unfolder<'a, W> {
-    fn new(inner: &'a mut W) -> Unfolder<'a, W> {
+    pub fn new(inner: &'a mut W) -> Unfolder<'a, W> {
         Unfolder{ inner, state: State::LineStart }
     }
 }
