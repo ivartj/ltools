@@ -1,4 +1,4 @@
-use std::io::{stdin, stdout, Result, copy, Write, BufWriter};
+use std::io::{stdin, stdout, Result, copy, Write};
 use ltools::unfold::Unfolder;
 use ltools::crstrip::CrStripper;
 use ltools::lexer::{ Lexer, Event, ReceiveEvent };
@@ -33,12 +33,6 @@ impl<W: Write> EventReceiver<W> {
     }
 }
 
-impl<W: Write> Drop for EventReceiver<W> {
-    fn drop(&mut self) {
-        self.dest.flush().unwrap();
-    }
-}
-
 impl<W: Write> ReceiveEvent for EventReceiver<W> {
     fn receive_event(&mut self, event: Event) {
         match event {
@@ -68,6 +62,7 @@ impl<W: Write> ReceiveEvent for EventReceiver<W> {
                     let mut decoder = DecodeWriter::new_with_state(&mut self.dest, self.b64state);
                     decoder.write(code.as_bytes()).unwrap(); // todo
                     self.b64state = decoder.get_state();
+                    self.valuetype = ValueType::Base64;
                 }
             },
             Event::ValueFinish => {
@@ -77,6 +72,7 @@ impl<W: Write> ReceiveEvent for EventReceiver<W> {
                         self.b64state = DecodeState::new();
                     }
                     self.dest.write(b"\n").unwrap(); // todo
+                    self.dest.flush().unwrap();
                 }
                 self.ismatch = true;
                 self.attrtypepos = 0;
@@ -87,8 +83,7 @@ impl<W: Write> ReceiveEvent for EventReceiver<W> {
 
 fn main() -> Result<()> {
     let attrtype = std::env::args().nth(1).unwrap();
-    let bufwriter = BufWriter::new(stdout());
-    let event_receiver = EventReceiver::new(attrtype, bufwriter);
+    let event_receiver = EventReceiver::new(attrtype, stdout());
     let lexer = Lexer::new(event_receiver);
     let unfolder = Unfolder::new(lexer);
     let mut crstripper = CrStripper::new(unfolder);
