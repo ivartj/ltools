@@ -1,5 +1,6 @@
 use std::io::{ Write, Result };
 
+#[derive(Clone, Copy)]
 enum State {
     B0, // 0 bits filled
     B6, // 6 bits filled
@@ -9,15 +10,35 @@ enum State {
     P1, // expecting one more padding
 }
 
-pub struct Decoder<W: Write> {
+#[derive(Clone, Copy)]
+pub struct DecodeState {
+    state: State,
+    octet: u8,
+}
+
+impl DecodeState {
+    pub fn new() -> DecodeState {
+        DecodeState{ state: State::B0, octet: 0u8 }
+    }
+}
+
+pub struct DecodeWriter<W: Write> {
     inner: W,
     state: State,
     octet: u8,
 }
 
-impl<W: Write> Decoder<W> {
-    pub fn new(inner: W) -> Decoder<W> {
-        Decoder{ inner, state: State::B0, octet: 0u8 }
+impl<W: Write> DecodeWriter<W> {
+    pub fn new(inner: W) -> DecodeWriter<W> {
+        DecodeWriter{ inner, state: State::B0, octet: 0u8 }
+    }
+
+    pub fn new_with_state(inner: W, state: DecodeState) -> DecodeWriter<W> {
+        DecodeWriter{
+            inner,
+            state: state.state,
+            octet: state.octet,
+        }
     }
 
     pub fn get_ptr(&self) -> &W {
@@ -26,6 +47,13 @@ impl<W: Write> Decoder<W> {
 
     pub fn get_mut(&mut self) -> &mut W {
         &mut self.inner
+    }
+
+    pub fn get_state(&self) -> DecodeState {
+        return DecodeState {
+            state: self.state,
+            octet: self.octet,
+        }
     }
 }
 
@@ -40,7 +68,7 @@ fn value_of(digit: u8) -> Option<u8> {
     }
 }
 
-impl<W: Write> Write for Decoder<W> {
+impl<W: Write> Write for DecodeWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         for c in buf.into_iter().copied() {
             self.state = match (c, value_of(c)) {
@@ -93,7 +121,7 @@ mod test {
 
     #[test]
     fn test1() -> Result<()> {
-        let mut decoder = Decoder::new(Vec::new());
+        let mut decoder = DecodeWriter::new(Vec::new());
         decoder.write(b"SGVsbG8gd29ybGQ=")?;
         assert_eq!(std::str::from_utf8(decoder.get_ptr()), Ok("Hello world"));
         Ok(())
@@ -101,7 +129,7 @@ mod test {
 
     #[test]
     fn test2() -> Result<()> {
-        let mut decoder = Decoder::new(Vec::new());
+        let mut decoder = DecodeWriter::new(Vec::new());
         decoder.write(b"SGVsbG8gd29ybGQh")?;
         assert_eq!(std::str::from_utf8(decoder.get_ptr()), Ok("Hello world!"));
         Ok(())
@@ -109,7 +137,7 @@ mod test {
 
     #[test]
     fn test3() -> Result<()> {
-        let mut decoder = Decoder::new(Vec::new());
+        let mut decoder = DecodeWriter::new(Vec::new());
         decoder.write(b"SGVsbG93b3JsZA==")?;
         assert_eq!(std::str::from_utf8(decoder.get_ptr()), Ok("Helloworld"));
         Ok(())

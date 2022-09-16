@@ -2,7 +2,7 @@ use std::io::{stdin, stdout, Result, copy, Write, BufWriter};
 use ltools::unfold::Unfolder;
 use ltools::crstrip::CrStripper;
 use ltools::lexer::{ Lexer, Event, ReceiveEvent };
-use ltools::base64;
+use ltools::base64::{ DecodeState, DecodeWriter };
 
 #[derive(PartialEq)]
 enum ValueType {
@@ -17,6 +17,7 @@ struct EventReceiver<W: Write> {
     ismatch: bool,
     dest: W,
     valuetype: ValueType,
+    b64state: DecodeState,
 }
 
 impl<W: Write> EventReceiver<W> {
@@ -27,6 +28,7 @@ impl<W: Write> EventReceiver<W> {
             ismatch: true, // true until non-matching char is seen
             dest,
             valuetype: ValueType::Text,
+            b64state: DecodeState::new(),
         }
     }
 }
@@ -47,22 +49,32 @@ impl<W: Write> ReceiveEvent for EventReceiver<W> {
                     self.attrtypepos += 1;
                 }
             },
-            Event::TypeFinish => self.valuetype = ValueType::None,
+            Event::TypeFinish => {
+                if self.ismatch {
+                    if self.attrtypepos != self.attrtype.len() {
+                        self.ismatch = false;
+                    }
+                    self.valuetype = ValueType::None
+                }
+            },
             Event::ValueText(text) => {
                 if self.ismatch {
                     self.dest.write(text.as_bytes()).unwrap(); // todo
                     self.valuetype = ValueType::Text;
                 }
             },
-            Event::ValueBase64(_code) => {
+            Event::ValueBase64(code) => {
                 if self.ismatch {
-                    todo!()
+                    let mut decoder = DecodeWriter::new_with_state(&mut self.dest, self.b64state);
+                    decoder.write(code.as_bytes()).unwrap(); // todo
+                    self.b64state = decoder.get_state();
                 }
             },
             Event::ValueFinish => {
                 if self.ismatch {
                     if self.valuetype == ValueType::Base64 {
-                        todo!()
+                        // TODO: consider raising an error if it isn't in a valid end state
+                        self.b64state = DecodeState::new();
                     }
                     self.dest.write(b"\n").unwrap(); // todo
                 }
