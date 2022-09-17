@@ -69,19 +69,21 @@ mod test {
     use super::*;
 
     #[test]
-    pub fn test_a() {
+    pub fn test_a() -> Result<()> {
         let mut buf = Vec::new();
         let mut crstripper = CrStripper::new(&mut buf);
-        crstripper.write(b"foo\r\nbar").unwrap();
+        crstripper.write(b"foo\r\nbar")?;
         assert_eq!(buf.as_slice(), b"foo\nbar");
+        Ok(())
     }
 
     #[test]
-    pub fn test_b() {
+    pub fn test_b() -> Result<()> {
         let mut buf = Vec::new();
         let mut crstripper = CrStripper::new(&mut buf);
-        crstripper.write(b"foo\r").unwrap();
-        crstripper.write(b"\nbar").unwrap();
+        crstripper.write(b"foo\r")?;
+        crstripper.write(b"\nbar")?;
         assert_eq!(buf.as_slice(), b"foo\nbar");
+        Ok(())
     }
 }

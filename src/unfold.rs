@@ -64,46 +64,51 @@ mod test {
     use super::*;
 
     #[test]
-    pub fn test_a() {
+    pub fn test_a() -> Result<()> {
         let mut buf = Vec::new();
         let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n bar").unwrap();
+        unfolder.write(b"foo\n bar")?;
         assert_eq!(buf.as_slice(), b"foobar");
+        Ok(())
     }
 
     #[test]
-    pub fn test_b() {
+    pub fn test_b() -> Result<()> {
         let mut buf = Vec::new();
         let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n ").unwrap();
-        unfolder.write(b"bar").unwrap();
+        unfolder.write(b"foo\n ")?;
+        unfolder.write(b"bar")?;
         assert_eq!(buf.as_slice(), b"foobar");
+        Ok(())
     }
 
     #[test]
-    pub fn test_c() {
+    pub fn test_c() -> Result<()> {
         let mut buf = Vec::new();
         let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n").unwrap();
-        unfolder.write(b" bar").unwrap();
+        unfolder.write(b"foo\n")?;
+        unfolder.write(b" bar")?;
         assert_eq!(buf.as_slice(), b"foobar");
+        Ok(())
     }
 
     #[test]
-    pub fn test_d() {
+    pub fn test_d() -> Result<()> {
         let mut buf = Vec::new();
         let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo").unwrap();
-        unfolder.write(b"\n bar").unwrap();
+        unfolder.write(b"foo")?;
+        unfolder.write(b"\n bar")?;
         assert_eq!(buf.as_slice(), b"foobar");
+        Ok(())
     }
 
     #[test]
-    pub fn test_e() {
+    pub fn test_e() -> Result<()> {
         let mut buf = Vec::new();
         let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n").unwrap();
-        unfolder.write(b"bar").unwrap();
+        unfolder.write(b"foo\n")?;
+        unfolder.write(b"bar")?;
         assert_eq!(buf.as_slice(), b"foo\nbar");
+        Ok(())
     }
 }
