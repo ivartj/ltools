@@ -1,4 +1,4 @@
-use std::io::{ Write, Result };
+use std::io::{ Write, Result, Error, ErrorKind };
 
 #[derive(Clone, Copy)]
 enum State {
@@ -71,47 +71,43 @@ fn value_of(digit: u8) -> Option<u8> {
 impl<W: Write> Write for DecodeWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         for c in buf.into_iter().copied() {
-            self.state = match (c, value_of(c)) {
-                (_, Some(value)) => match self.state {
-                    State::B0 => {
-                        self.octet = value << 2;
-                        State::B6
-                    },
-                    State::B6 => {
-                        self.octet |= value >> 4;
-                        self.inner.write(&[self.octet])?;
-                        self.octet = value << 4;
-                        State::B4
-                    },
-                    State::B4 => {
-                        self.octet |= value >> 2;
-                        self.inner.write(&[self.octet])?;
-                        self.octet = value << 6;
-                        State::B2
-                    },
-                    State::B2 => {
-                        self.octet |= value;
-                        self.inner.write(&[self.octet])?;
-                        State::B0
-                    },
-                    _ => todo!(),
+            self.state = match (self.state, c, value_of(c)) {
+                (State::B0, _, Some(value)) => {
+                    self.octet = value << 2;
+                    State::B6
                 },
-                (b'=', _) => {
-                    match self.state {
-                        State::B4 => State::P1,
-                        State::B2 => State::P0,
-                        State::P1 => State::P0,
-                        _ => todo!(),
-                    }
+                (State::B6, _, Some(value)) => {
+                    self.octet |= value >> 4;
+                    self.inner.write(&[self.octet])?;
+                    self.octet = value << 4;
+                    State::B4
                 },
-                _ => todo!(),
+                (State::B4, _, Some(value)) => {
+                    self.octet |= value >> 2;
+                    self.inner.write(&[self.octet])?;
+                    self.octet = value << 6;
+                    State::B2
+                },
+                (State::B4, b'=', _) => State::P1,
+                (State::B2, _, Some(value)) => {
+                    self.octet |= value;
+                    self.inner.write(&[self.octet])?;
+                    State::B0
+                },
+                (State::B2 | State::P1, b'=', _) => State::P0,
+                (_, _, _) => return Err(Error::new(ErrorKind::InvalidData, format!("unexpected character 0x{:02X}", c))),
             }
         }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> Result<()> {
-        todo!()
+        match self.state {
+            // valid final states
+            State::P0 | State::B0 => Ok(()),
+            // other states
+            _ => Err(Error::new(ErrorKind::Other, "base64 decoder flushed on invalid end state")),
+        }
     }
 }
 
@@ -123,6 +119,7 @@ mod test {
     fn test1() -> Result<()> {
         let mut decoder = DecodeWriter::new(Vec::new());
         decoder.write(b"SGVsbG8gd29ybGQ=")?;
+        decoder.flush()?;
         assert_eq!(std::str::from_utf8(decoder.get_ptr()), Ok("Hello world"));
         Ok(())
     }
@@ -131,6 +128,7 @@ mod test {
     fn test2() -> Result<()> {
         let mut decoder = DecodeWriter::new(Vec::new());
         decoder.write(b"SGVsbG8gd29ybGQh")?;
+        decoder.flush()?;
         assert_eq!(std::str::from_utf8(decoder.get_ptr()), Ok("Hello world!"));
         Ok(())
     }
@@ -139,8 +137,22 @@ mod test {
     fn test3() -> Result<()> {
         let mut decoder = DecodeWriter::new(Vec::new());
         decoder.write(b"SGVsbG93b3JsZA==")?;
+        decoder.flush()?;
         assert_eq!(std::str::from_utf8(decoder.get_ptr()), Ok("Helloworld"));
         Ok(())
+    }
+
+    #[test]
+    fn test_invalid_data() {
+        let mut buf = Vec::new();
+        let mut decoder = DecodeWriter::new(&mut buf);
+        let result = decoder.write(b"\r");
+        if let Err(error) = result {
+            assert_eq!(error.kind(), ErrorKind::InvalidData);
+            assert_eq!(error.to_string(), "unexpected character 0x0D");
+        } else {
+            panic!("expected error");
+        }
     }
 }
 
