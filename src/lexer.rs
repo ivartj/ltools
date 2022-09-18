@@ -4,6 +4,7 @@ use std::str::from_utf8_unchecked;
 
 enum State {
     LineStart,
+    CommentLine,
     AttributeType,
     ValueColon,
     SafeStringValue,
@@ -77,12 +78,17 @@ impl<R: ReceiveEvent> Write for Lexer<R> {
             self.state = match self.state {
                 State::LineStart => match c {
                     b'\n' => State::LineStart,
+                    b'#' => State::CommentLine,
                     ALPHA!() => {
                         self.emit(Event::TypeChar((*c).into()));
                         State::AttributeType
                     },
                     DIGIT!() => todo!(), // OIDs
                     _ => todo!(),
+                },
+                State::CommentLine => match c {
+                    b'\n' => State::LineStart,
+                    _ => State::CommentLine,
                 },
                 State::AttributeType => match c {
                     b';' => todo!(), // attribute options
@@ -167,8 +173,12 @@ mod tests {
         let vec = Vec::new();
         let mut lexer = Lexer::new(vec);
         lexer.write(b"\
+                    # comment 1\n\
                     dn:cn=admin,ou=sa,o=system\n\
+                    # comment 2\n\
+                    # comment 3\n\
                     cn: admin\n\
+                    # comment 4\n\
                     sn:: MO4Z2VzdMO4bA==\n\
                     ").expect("success");
         let mut iter = lexer.get_ref().iter();
