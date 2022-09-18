@@ -1,8 +1,9 @@
-use std::io::{stdin, stdout, Result, copy, Write};
+use std::io::{stdin, stdout, copy, Write};
 use ltools::unfold::Unfolder;
 use ltools::crstrip::CrStripper;
 use ltools::lexer::{ Lexer, Event, ReceiveEvent };
 use ltools::base64::{ DecodeState, DecodeWriter };
+use clap::{ command, arg, Arg };
 
 #[derive(PartialEq)]
 enum ValueType {
@@ -18,6 +19,7 @@ struct EventReceiver<W: Write> {
     dest: W,
     valuetype: ValueType,
     b64state: DecodeState,
+    delimiter: u8,
 }
 
 impl<W: Write> EventReceiver<W> {
@@ -29,7 +31,13 @@ impl<W: Write> EventReceiver<W> {
             dest,
             valuetype: ValueType::Text,
             b64state: DecodeState::new(),
+            delimiter: b'\n',
         }
+    }
+
+    fn set_delimiter(&mut self, delimiter: u8) -> &mut Self {
+        self.delimiter = delimiter;
+        self
     }
 }
 
@@ -71,7 +79,7 @@ impl<W: Write> ReceiveEvent for EventReceiver<W> {
                         // TODO: consider raising an error if it isn't in a valid end state
                         self.b64state = DecodeState::new();
                     }
-                    self.dest.write(b"\n").unwrap(); // todo
+                    self.dest.write(&[self.delimiter]).unwrap(); // todo
                     self.dest.flush().unwrap();
                 }
                 self.ismatch = true;
@@ -81,9 +89,34 @@ impl<W: Write> ReceiveEvent for EventReceiver<W> {
     }
 }
 
-fn main() -> Result<()> {
-    let attrtype = std::env::args().nth(1).unwrap();
-    let event_receiver = EventReceiver::new(attrtype, stdout());
+fn parse_arguments() -> Result<(String, u8), &'static str> {
+    let mut delimiter = b'\n';
+
+    let matches = command!("lget")
+        .disable_colored_help(true)
+        .arg(arg!(<ATTRIBUTE> "The attribute type name to get values of."))
+        .arg(Arg::new("null-delimit")
+             .short('0').long("null-delimit")
+             .action(clap::ArgAction::SetTrue)
+             .help("Terminate output values with null bytes (0x00) instead of newlines."))
+        .get_matches();
+
+    if matches.get_flag("null-delimit") {
+        delimiter = 0x00;
+    }
+
+    if let Some(attrtype) = matches.get_one::<String>("ATTRIBUTE") {
+        Ok((attrtype.to_string(), delimiter))
+    } else {
+        // shouldn't happen when the argument is required
+        Err("missing attribute type name on command line")
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (attrtype, delimiter) = parse_arguments()?;
+    let mut event_receiver = EventReceiver::new(attrtype, stdout());
+    event_receiver.set_delimiter(delimiter);
     let lexer = Lexer::new(event_receiver);
     let unfolder = Unfolder::new(lexer);
     let mut crstripper = CrStripper::new(unfolder);
