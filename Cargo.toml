@@ -10,5 +10,6 @@ name = "ltools"
 path = "src/lib.rs"
 
 [dependencies]
-clap.version = "3.2.22"
 clap.features = [ "cargo" ]
+clap.version = "3.2.22"
+nom = "7.1.1"
