@@ -4,17 +4,17 @@ use nom::{
     character::complete::{ satisfy, char },
     bytes::complete::tag,
     branch::alt,
-    sequence::{ preceded, pair },
-    multi::fold_many0,
-    combinator::{ map },
+    sequence::{ preceded, pair, tuple, delimited },
+    multi::{ fold_many0, many1 },
+    combinator::map,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Filter {
-    And(Box<[Filter]>),
-    Or(Box<[Filter]>),
+    And(Vec<Filter>),
+    Or(Vec<Filter>),
     Not(Box<Filter>),
-    Simple(AttributeDescription, FilterType, String),
+    Simple(AttributeDescription, FilterType, Vec<u8>),
     Present(AttributeDescription),
     // TODO: Substring(AttributeDescription, ...
     // TODO: Extensible(...
@@ -24,6 +24,14 @@ enum Filter {
 struct AttributeDescription {
     attribute_type: String,
     // TODO: add options
+}
+
+impl AttributeDescription {
+    fn new(attribute_type: String) -> AttributeDescription {
+        AttributeDescription{
+            attribute_type,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -37,7 +45,7 @@ enum FilterType {
 fn attribute_type(input: &str) -> IResult<&str, String> {
     let (input, start_char) = satisfy(|c| c.is_ascii_alphabetic())(input)?;
     fold_many0(
-        satisfy(|c| c.is_ascii_alphanumeric()),
+        satisfy(|c| c.is_ascii_alphanumeric() || c == '-'),
         move || start_char.to_string(),
         |mut s, c| { s.push(c); s},
     )(input)
@@ -62,7 +70,7 @@ fn hex_digit_value(c: char) -> u8 {
     }
 }
 
-fn assertion_value(input: &str) -> IResult<&str, Vec<u8>> {
+fn attribute_value(input: &str) -> IResult<&str, Vec<u8>> {
     fold_many0(
         alt((
             map(
@@ -82,6 +90,59 @@ fn assertion_value(input: &str) -> IResult<&str, Vec<u8>> {
     )(input)
 }
 
+fn simple_filter(input: &str) -> IResult<&str, Filter> {
+    map(tuple((char('('), attribute_type, filter_type, attribute_value, char(')'))),
+        |(_,atype, ftype, avalue, _)| {
+            Filter::Simple(
+                AttributeDescription{
+                    attribute_type: atype,
+                },
+                ftype,
+                avalue
+            )
+        })(input)
+}
+
+fn present_filter(input: &str) -> IResult<&str, Filter> {
+    map(tuple((char('('), attribute_type, tag("=*)"))),
+        |(_,atype, _)| {
+            Filter::Present(
+                AttributeDescription{
+                    attribute_type: atype,
+                },
+            )
+        })(input)
+}
+
+fn not_filter(input: &str) -> IResult<&str, Filter> {
+    map(delimited(tag("(!"), filter, char(')')),
+        |inner_filter| Filter::Not(Box::new(inner_filter)),
+    )(input)
+}
+
+fn and_filter(input: &str) -> IResult<&str, Filter> {
+    map(delimited(tag("(&"), many1(filter), char(')')),
+        |filterlist| Filter::And(filterlist)
+    )(input)
+}
+
+fn or_filter(input: &str) -> IResult<&str, Filter> {
+    map(delimited(tag("(|"), many1(filter), char(')')),
+        |filterlist| Filter::Or(filterlist)
+    )(input)
+}
+
+fn filter(input: &str) -> IResult<&str, Filter> {
+    alt((
+        simple_filter,
+        present_filter,
+        not_filter,
+        and_filter,
+        or_filter,
+    ))(input)
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -95,8 +156,33 @@ mod test {
     }
 
     #[test]
-    fn test_assertion_value() {
-        assert_eq!(assertion_value("(\0\x1b)*"), Ok(("(\0\x1b)*", vec![])));
-        assert_eq!(assertion_value("\\1b\\00foo"), Ok(("", vec![b'\x1b', b'\0', b'f', b'o', b'o'])));
+    fn test_attribute_value() {
+        assert_eq!(attribute_value("(\0\x1b)*"), Ok(("(\0\x1b)*", vec![])));
+        assert_eq!(attribute_value("\\1b\\00foo"), Ok(("", vec![b'\x1b', b'\0', b'f', b'o', b'o'])));
+    }
+
+    #[test]
+    fn test_simple_filter() {
+        assert_eq!(filter("(ou=sa)"), Ok(("", Filter::Simple(AttributeDescription::new(String::from("ou")), FilterType::Equal, vec![b's', b'a']))));
+    }
+
+    #[test]
+    fn test_present_filter() {
+        assert_eq!(filter("(ou=*)"), Ok(("", Filter::Present(AttributeDescription::new(String::from("ou"))))));
+    }
+
+    #[test]
+    fn test_not_filter() {
+        assert_eq!(filter("(!(ou=*))"), Ok(("", Filter::Not(Box::new(Filter::Present(AttributeDescription::new(String::from("ou"))))))));
+    }
+
+    #[test]
+    fn test_and_filter() {
+        assert_eq!(
+            filter("(&(f=*)(o>=o))"),
+            Ok(("", Filter::And(vec![
+                Filter::Present(AttributeDescription::new(String::from("f"))),
+                Filter::Simple(AttributeDescription::new(String::from("o")), FilterType::GreaterOrEqual, vec![b'o']),
+            ]))));
     }
 }
