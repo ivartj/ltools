@@ -10,7 +10,7 @@ use nom::{
 };
 
 #[derive(Debug, PartialEq)]
-enum Filter {
+pub enum Filter {
     And(Vec<Filter>),
     Or(Vec<Filter>),
     Not(Box<Filter>),
@@ -21,21 +21,13 @@ enum Filter {
 }
 
 #[derive(Debug, PartialEq)]
-struct AttributeDescription {
+pub struct AttributeDescription {
     attribute_type: String,
     // TODO: add options
 }
 
-impl AttributeDescription {
-    fn new(attribute_type: String) -> AttributeDescription {
-        AttributeDescription{
-            attribute_type,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
-enum FilterType {
+pub enum FilterType {
     Equal,
     Approx,
     GreaterOrEqual,
@@ -132,7 +124,7 @@ fn or_filter(input: &str) -> IResult<&str, Filter> {
     )(input)
 }
 
-fn filter(input: &str) -> IResult<&str, Filter> {
+pub fn filter(input: &str) -> IResult<&str, Filter> {
     alt((
         simple_filter,
         present_filter,
@@ -146,6 +138,14 @@ fn filter(input: &str) -> IResult<&str, Filter> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    impl AttributeDescription {
+        fn new(attribute_type: String) -> AttributeDescription {
+            AttributeDescription{
+                attribute_type,
+            }
+        }
+    }
 
     #[test]
     fn test_filter_type() {
