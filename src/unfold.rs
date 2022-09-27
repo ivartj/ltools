@@ -22,13 +22,19 @@ impl<W: Write> Unfolder<W> {
 impl<W: Write> Write for Unfolder<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let mut write_from: usize = 0;
-        for (i, c) in buf.iter().enumerate() {
+        for (i, c) in buf.iter().copied().enumerate() {
             self.state = match self.state {
-                State::LineStart => if *c == b'\n' { State::LineStart } else { State::Text },
-                State::Text => if *c == b'\n' { State::Newline } else { State::Text },
-                State::Newline => match *c {
+                State::LineStart => match c {
+                    b'\n' => State::LineStart,
+                    _ => State::Text,
+                },
+                State::Text => match c {
+                    b'\n' => State::Newline,
+                    _ => State::Text,
+                },
+                State::Newline => match c {
                     b' ' => {
-                        if i != 0 && i >= write_from {
+                        if i > 1 + write_from {
                             self.inner.write(&buf[write_from..i-1])?;
                         }
                         write_from = i + 1;
@@ -38,7 +44,11 @@ impl<W: Write> Write for Unfolder<W> {
                         if i == 0 {
                             self.inner.write(b"\n")?;
                         }
-                        if *c == b'\n' { State::LineStart } else { State::Text }
+                        if c == b'\n' {
+                            State::LineStart
+                        } else {
+                            State::Text
+                        }
                     },
                 }
             }
@@ -68,7 +78,7 @@ mod test {
         let mut buf = Vec::new();
         let mut unfolder = Unfolder::new(&mut buf);
         unfolder.write(b"foo\n bar")?;
-        assert_eq!(buf.as_slice(), b"foobar");
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
 
@@ -78,7 +88,7 @@ mod test {
         let mut unfolder = Unfolder::new(&mut buf);
         unfolder.write(b"foo\n ")?;
         unfolder.write(b"bar")?;
-        assert_eq!(buf.as_slice(), b"foobar");
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
 
@@ -88,7 +98,7 @@ mod test {
         let mut unfolder = Unfolder::new(&mut buf);
         unfolder.write(b"foo\n")?;
         unfolder.write(b" bar")?;
-        assert_eq!(buf.as_slice(), b"foobar");
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
 
@@ -98,7 +108,7 @@ mod test {
         let mut unfolder = Unfolder::new(&mut buf);
         unfolder.write(b"foo")?;
         unfolder.write(b"\n bar")?;
-        assert_eq!(buf.as_slice(), b"foobar");
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
 
@@ -108,7 +118,27 @@ mod test {
         let mut unfolder = Unfolder::new(&mut buf);
         unfolder.write(b"foo\n")?;
         unfolder.write(b"bar")?;
-        assert_eq!(buf.as_slice(), b"foo\nbar");
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foo\nbar");
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_f() -> Result<()> {
+        let mut buf = Vec::new();
+        let mut unfolder = Unfolder::new(&mut buf);
+        unfolder.write(b"foo\n")?;
+        unfolder.write(b"\nbar")?;
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foo\n\nbar");
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_g() -> Result<()> {
+        let mut buf = Vec::new();
+        let mut unfolder = Unfolder::new(&mut buf);
+        unfolder.write(b"a\n b\n")?;
+        unfolder.write(b" c")?;
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "abc");
         Ok(())
     }
 }
