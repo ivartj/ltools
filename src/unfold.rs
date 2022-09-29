@@ -5,7 +5,7 @@ use std::io::Result;
 enum State {
     LineStart,
     Text,
-    Newline
+    NewlineAfterText,
 }
 
 pub struct Unfolder<W> {
@@ -21,26 +21,29 @@ impl<W: Write> Unfolder<W> {
 
 impl<W: Write> Write for Unfolder<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        let mut write_from: usize = 0;
+        let mut write_from = 0;
         for (i, c) in buf.iter().copied().enumerate() {
             self.state = match self.state {
-                State::LineStart => match c {
-                    b'\n' => State::LineStart,
-                    _ => State::Text,
+                State::LineStart => {
+                    match c {
+                        b'\n' => State::LineStart,
+                        _ => State::Text,
+                    }
                 },
-                State::Text => match c {
-                    b'\n' => State::Newline,
-                    _ => State::Text,
+                State::Text => {
+                    match c {
+                        b'\n' => State::NewlineAfterText,
+                        _ => State::Text,
+                    }
                 },
-                State::Newline => match c {
-                    b' ' => {
-                        if i > 1 + write_from {
+                State::NewlineAfterText => {
+                    if c == b' ' {
+                        if i > 1 {
                             self.inner.write(&buf[write_from..i-1])?;
                         }
                         write_from = i + 1;
                         State::Text
-                    },
-                    _ => {
+                    } else {
                         if i == 0 {
                             self.inner.write(b"\n")?;
                         }
@@ -49,23 +52,22 @@ impl<W: Write> Write for Unfolder<W> {
                         } else {
                             State::Text
                         }
-                    },
+                    }
                 }
             }
         }
-        let write_to = if self.state == State::Newline {
+        let write_until = if self.state == State::NewlineAfterText {
             buf.len() - 1
         } else {
             buf.len()
         };
-        if write_to - write_from > 0 {
-            self.inner.write(&buf[write_from..write_to])?;
-        }
+        self.inner.write(&buf[write_from..write_until])?;
+
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> Result<()> {
-        Ok(())
+        self.inner.flush()
     }
 }
 
