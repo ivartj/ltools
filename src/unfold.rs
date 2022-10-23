@@ -64,7 +64,7 @@ impl<W: Write> Write for Unfolder<W> {
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.inner.flush()?
+        self.inner.flush()
     }
 }
 
