@@ -46,7 +46,7 @@ impl<W: Write> Write for CrStripper<W> {
                 },
             };
         }
-        let write_until = if self.state == State::Cr {
+        let write_until = if buf.len() > 0 && self.state == State::Cr {
             buf.len() - 1
         } else {
             buf.len()
@@ -100,6 +100,17 @@ mod test {
         let mut crstripper = CrStripper::new(&mut buf);
         crstripper.write(b"foo\r\rbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\r\rbar");
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_e() -> Result<()> {
+        let mut buf = Vec::new();
+        let mut crstripper = CrStripper::new(&mut buf);
+        crstripper.write(b"a\r")?;
+        crstripper.write(b"")?;
+        crstripper.write(b"\nb")?;
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "a\nb");
         Ok(())
     }
 }
