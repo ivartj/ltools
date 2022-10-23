@@ -24,22 +24,19 @@ impl<W: Write> Write for Unfolder<W> {
         let mut write_from = 0;
         for (i, c) in buf.iter().copied().enumerate() {
             self.state = match self.state {
-                State::LineStart => {
-                    match c {
-                        b'\n' => State::LineStart,
-                        _ => State::Text,
-                    }
+                State::LineStart => match c {
+                    b'\n' => State::LineStart,
+                    _ => State::Text,
                 },
-                State::Text => {
-                    match c {
-                        b'\n' => State::NewlineAfterText,
-                        _ => State::Text,
-                    }
+                State::Text => match c {
+                    b'\n' => State::NewlineAfterText,
+                    _ => State::Text,
                 },
                 State::NewlineAfterText => {
                     if c == b' ' {
                         if i > 1 {
-                            self.inner.write(&buf[write_from..i-1])?;
+                            let write_until = i - 1;
+                            self.inner.write(&buf[write_from..write_until])?;
                         }
                         write_from = i + 1;
                         State::Text
@@ -47,27 +44,27 @@ impl<W: Write> Write for Unfolder<W> {
                         if i == 0 {
                             self.inner.write(b"\n")?;
                         }
-                        if c == b'\n' {
-                            State::LineStart
-                        } else {
-                            State::Text
+                        match c {
+                            b'\n' => State::LineStart,
+                            _ => State::Text,
                         }
                     }
-                }
-            }
+                },
+            };
         }
-        let write_until = if self.state == State::NewlineAfterText {
-            buf.len() - 1
+        if self.state == State::NewlineAfterText {
+            if buf.len() > write_from + 1 {
+                let write_until = buf.len() - 1;
+                self.inner.write(&buf[write_from..write_until])?;
+            }
         } else {
-            buf.len()
-        };
-        self.inner.write(&buf[write_from..write_until])?;
-
+            self.inner.write(&buf[write_from..])?;
+        }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.inner.flush()
+        self.inner.flush()?
     }
 }
 
@@ -141,6 +138,17 @@ mod test {
         unfolder.write(b"a\n b\n")?;
         unfolder.write(b" c")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "abc");
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_h() -> Result<()> {
+        let mut buf = Vec::new();
+        let mut unfolder = Unfolder::new(&mut buf);
+        unfolder.write(b"a\n")?;
+        unfolder.write(b"")?;
+        unfolder.write(b" b")?;
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "ab");
         Ok(())
     }
 }
