@@ -1,5 +1,6 @@
-use std::io::Write;
 use std::io::Result;
+use crate::loc::{ Loc, LocWrite };
+use crate::skip::{ Skipper, SkipState, SkipToken };
 
 #[derive(PartialEq)]
 enum State {
@@ -8,75 +9,69 @@ enum State {
     NewlineAfterText,
 }
 
-pub struct Unfolder<W> {
-    inner: W,
+pub struct Unfolder<LW: LocWrite> {
+    inner: LW,
     state: State,
+    skipstate: SkipState,
 }
 
-impl<W: Write> Unfolder<W> {
-    pub fn new(inner: W) -> Unfolder<W> {
-        Unfolder{ inner, state: State::LineStart }
+impl<LW: LocWrite> Unfolder<LW> {
+    pub fn new(inner: LW) -> Unfolder<LW> {
+        Unfolder{
+            inner,
+            state: State::LineStart,
+            skipstate: SkipState::new(),
+        }
     }
 }
 
-impl<W: Write> Write for Unfolder<W> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        let mut write_from = 0;
-        for (i, c) in buf.iter().copied().enumerate() {
+impl<LW: LocWrite> LocWrite for Unfolder<LW> {
+    fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize> {
+        let mut skipper = Skipper::<&mut LW>::new_with_state(&mut self.inner, loc, buf, self.skipstate);
+        loop {
+            let c = match skipper.lookahead() {
+                SkipToken::End => break,
+                SkipToken::Byte(c) => c,
+            };
             self.state = match self.state {
                 State::LineStart => match c {
-                    b'\n' => State::LineStart,
-                    _ => State::Text,
+                    b'\n' => { skipper.shift()?; State::LineStart },
+                    _ => { skipper.shift()?; State::Text },
                 },
                 State::Text => match c {
-                    b'\n' => State::NewlineAfterText,
-                    _ => State::Text,
+                    b'\n' => { skipper.begin_skip()?; skipper.shift()?; State::NewlineAfterText },
+                    _ => { skipper.shift()?; State::Text },
                 },
                 State::NewlineAfterText => {
                     if c == b' ' {
-                        if i > 1 {
-                            let write_until = i - 1;
-                            self.inner.write(&buf[write_from..write_until])?;
-                        }
-                        write_from = i + 1;
-                        State::Text
+                        skipper.shift()?;
+                        skipper.end_skip()?;
                     } else {
-                        if i == 0 {
-                            self.inner.write(b"\n")?;
-                        }
-                        match c {
-                            b'\n' => State::LineStart,
-                            _ => State::Text,
-                        }
+                        skipper.cancel_skip()?;
                     }
+                    State::Text
                 },
             };
         }
-        if self.state == State::NewlineAfterText {
-            if buf.len() > write_from + 1 {
-                let write_until = buf.len() - 1;
-                self.inner.write(&buf[write_from..write_until])?;
-            }
-        } else {
-            self.inner.write(&buf[write_from..])?;
-        }
+        self.skipstate = skipper.save_state();
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.inner.flush()
+        LocWrite::flush(&mut self.inner)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::loc::LocWriteWrapper;
 
     #[test]
     pub fn test_a() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n bar")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"foo\n bar")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
@@ -84,9 +79,9 @@ mod test {
     #[test]
     pub fn test_b() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n ")?;
-        unfolder.write(b"bar")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"foo\n ")?;
+        unfolder.loc_write(Loc::new(), b"bar")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
@@ -94,9 +89,9 @@ mod test {
     #[test]
     pub fn test_c() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n")?;
-        unfolder.write(b" bar")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"foo\n")?;
+        unfolder.loc_write(Loc::new(), b" bar")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
@@ -104,9 +99,9 @@ mod test {
     #[test]
     pub fn test_d() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo")?;
-        unfolder.write(b"\n bar")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"foo")?;
+        unfolder.loc_write(Loc::new(), b"\n bar")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "foobar");
         Ok(())
     }
@@ -114,9 +109,9 @@ mod test {
     #[test]
     pub fn test_e() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n")?;
-        unfolder.write(b"bar")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"foo\n")?;
+        unfolder.loc_write(Loc::new(), b"bar")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "foo\nbar");
         Ok(())
     }
@@ -124,9 +119,9 @@ mod test {
     #[test]
     pub fn test_f() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"foo\n")?;
-        unfolder.write(b"\nbar")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"foo\n")?;
+        unfolder.loc_write(Loc::new(), b"\nbar")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "foo\n\nbar");
         Ok(())
     }
@@ -134,9 +129,9 @@ mod test {
     #[test]
     pub fn test_g() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"a\n b\n")?;
-        unfolder.write(b" c")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"a\n b\n")?;
+        unfolder.loc_write(Loc::new(), b" c")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "abc");
         Ok(())
     }
@@ -144,11 +139,23 @@ mod test {
     #[test]
     pub fn test_h() -> Result<()> {
         let mut buf = Vec::new();
-        let mut unfolder = Unfolder::new(&mut buf);
-        unfolder.write(b"a\n")?;
-        unfolder.write(b"")?;
-        unfolder.write(b" b")?;
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::new(), b"a\n")?;
+        unfolder.loc_write(Loc::new(), b"")?;
+        unfolder.loc_write(Loc::new(), b" b")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "ab");
+        Ok(())
+    }
+
+    use crate::loc::test::LocWrites;
+
+    #[test]
+    pub fn test_loc_a() -> Result<()> {
+        let mut writes = LocWrites::new();
+        let mut unfolder = Unfolder::new(&mut writes);
+        unfolder.loc_write(Loc::new(), b"a\n b")?;
+        assert_eq!(writes[0], ( Loc{ line: 1, column: 1, offset: 0 }, String::from("a")));
+        assert_eq!(writes[1], ( Loc{ line: 2, column: 2, offset: 3 }, String::from("b")));
         Ok(())
     }
 }
