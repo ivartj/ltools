@@ -59,20 +59,20 @@ impl<'a, LW: LocWrite> Skipper<'a, LW> {
         }
     }
 
-    pub fn lookahead(&self) -> SkipToken {
+    pub fn lookahead(&self) -> Option<u8> {
         if self.pos < self.buf.len() {
-            SkipToken::Byte(self.buf[self.pos])
+            Some(self.buf[self.pos])
         } else {
-            SkipToken::End
+            None
         }
     }
 
-    pub fn shift(&mut self) -> Result<SkipToken> {
+    pub fn shift(&mut self) -> Result<Option<u8>> {
         let lookahead = match self.lookahead() {
-            SkipToken::End => {
+            None => {
                 return Err(Error::new(ErrorKind::Other, "call to .shift() after reaching end of buffer"));
             },
-            SkipToken::Byte(c) => c,
+            Some(c) => c,
         };
         match self.state {
             SkipState::SkippingFrom(_, offset) => if self.pos + 1 - offset > MAX_PREFIX {
@@ -85,7 +85,7 @@ impl<'a, LW: LocWrite> Skipper<'a, LW> {
         }
         self.loc = self.loc.after(lookahead);
         self.pos += 1;
-        if self.lookahead() == SkipToken::End {
+        if self.lookahead() == None {
             match self.state {
                 SkipState::Writing => {
                     self.inner.loc_write(self.write_from_loc, &self.buf[self.write_from..])?;
@@ -110,7 +110,7 @@ impl<'a, LW: LocWrite> Skipper<'a, LW> {
     pub fn end_skip(&mut self) -> Result<()> {
         match self.state {
             SkipState::SkippingFrom(_, write_until) => {
-                if self.lookahead() != SkipToken::End {
+                if self.lookahead() != None {
                     self.inner.loc_write(self.write_from_loc, &self.buf[self.write_from..write_until])?;
                 }
             },
@@ -172,7 +172,7 @@ mod test {
         skipper.end_skip()?;
         skipper.shift()?;
         skipper.shift()?;
-        assert_eq!(skipper.lookahead(), SkipToken::End);
+        assert_eq!(skipper.lookahead(), None);
         assert_eq!(writes.len(), 2);
         assert_eq!(writes[0].1, "a");
         assert_eq!(writes[1].1, "cd");
@@ -186,14 +186,14 @@ mod test {
         skipper.shift()?;
         skipper.begin_skip()?;
         skipper.shift()?;
-        assert_eq!(skipper.lookahead(), SkipToken::End);
+        assert_eq!(skipper.lookahead(), None);
         let saved_state = skipper.save_state();
         let loc = b"a\n".iter().copied().fold(Loc::new(), |l, c| l.after(c));
         skipper = Skipper::new_with_state(&mut writes, loc, b" d", saved_state);
         skipper.shift()?;
         skipper.end_skip()?;
         skipper.shift()?;
-        assert_eq!(skipper.lookahead(), SkipToken::End);
+        assert_eq!(skipper.lookahead(), None);
         assert_eq!(writes.len(), 2);
         assert_eq!(writes[0].1, "a");
         assert_eq!(writes[0].0, Loc{ offset: 0, line: 1, column: 1});
@@ -211,7 +211,7 @@ mod test {
         skipper.shift()?;
         skipper.cancel_skip()?;
         skipper.shift()?;
-        assert_eq!(skipper.lookahead(), SkipToken::End);
+        assert_eq!(skipper.lookahead(), None);
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0].1, "abc");
         assert_eq!(writes[0].0, Loc{ offset: 0, line: 1, column: 1});
@@ -225,14 +225,14 @@ mod test {
         skipper.shift()?;
         skipper.begin_skip()?;
         skipper.shift()?;
-        assert_eq!(skipper.lookahead(), SkipToken::End);
+        assert_eq!(skipper.lookahead(), None);
         let saved_state = skipper.save_state();
         let loc = b"ab".iter().copied().fold(Loc::new(), |l, c| l.after(c));
         skipper = Skipper::new_with_state(&mut writes, loc, b"cd", saved_state);
         skipper.shift()?;
         skipper.cancel_skip()?;
         skipper.shift()?;
-        assert_eq!(skipper.lookahead(), SkipToken::End);
+        assert_eq!(skipper.lookahead(), None);
         assert_eq!(writes.len(), 3);
         assert_eq!(writes[0].1, "a");
         assert_eq!(writes[0].0, Loc{ offset: 0, line: 1, column: 1});

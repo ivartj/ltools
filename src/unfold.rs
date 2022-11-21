@@ -1,6 +1,6 @@
 use std::io::Result;
 use crate::loc::{ Loc, LocWrite };
-use crate::skip::{ Skipper, SkipState, SkipToken };
+use crate::skip::{ Skipper, SkipState };
 
 #[derive(PartialEq)]
 enum State {
@@ -30,8 +30,8 @@ impl<LW: LocWrite> LocWrite for Unfolder<LW> {
         let mut skipper = Skipper::<&mut LW>::new_with_state(&mut self.inner, loc, buf, self.skipstate);
         loop {
             let c = match skipper.lookahead() {
-                SkipToken::End => break,
-                SkipToken::Byte(c) => c,
+                None => break,
+                Some(c) => c,
             };
             self.state = match self.state {
                 State::LineStart => match c {
