@@ -1,19 +1,18 @@
 use std::io::{stdin, stdout, copy, Write};
 use ltools::unfold::Unfolder;
 use ltools::crstrip::CrStripper;
-use ltools::lexer::{ Lexer, Event, ReceiveEvent };
+use ltools::lexer::{ Lexer, Token, TokenKind, ReceiveToken };
 use ltools::base64::{ DecodeState, DecodeWriter };
 use ltools::loc::WriteLocWrapper;
 use clap::{ command, arg, Arg };
 
 #[derive(PartialEq)]
 enum ValueType {
-    None,
     Text,
     Base64,
 }
 
-struct EventReceiver<W: Write> {
+struct TokenReceiver<W: Write> {
     attrtype: String,
     attrtypepos: usize,
     ismatch: bool,
@@ -23,9 +22,9 @@ struct EventReceiver<W: Write> {
     delimiter: u8,
 }
 
-impl<W: Write> EventReceiver<W> {
-    fn new(attrtype: String, dest: W) -> EventReceiver<W> {
-        EventReceiver{
+impl<W: Write> TokenReceiver<W> {
+    fn new(attrtype: String, dest: W) -> TokenReceiver<W> {
+        TokenReceiver{
             attrtype,
             attrtypepos: 0,
             ismatch: true, // true until non-matching char is seen
@@ -42,39 +41,27 @@ impl<W: Write> EventReceiver<W> {
     }
 }
 
-impl<W: Write> ReceiveEvent for EventReceiver<W> {
-    fn receive_event(&mut self, event: Event) {
-        match event {
-            Event::TypeChar(c) => {
-                if self.ismatch {
-                    self.ismatch = self.attrtypepos < self.attrtype.len()
-                        && self.attrtype.as_bytes()[self.attrtypepos].to_ascii_lowercase() == (c as u8).to_ascii_lowercase();
-                    self.attrtypepos += 1;
-                }
+impl<W: Write> ReceiveToken for TokenReceiver<W> {
+    fn receive_token(&mut self, token: Token) {
+        match token.kind {
+            TokenKind::AttributeType => {
+                self.ismatch = token.segment == self.attrtype;
             },
-            Event::TypeFinish => {
+            TokenKind::ValueText => {
                 if self.ismatch {
-                    if self.attrtypepos != self.attrtype.len() {
-                        self.ismatch = false;
-                    }
-                    self.valuetype = ValueType::None
-                }
-            },
-            Event::ValueText(text) => {
-                if self.ismatch {
-                    self.dest.write(text.as_bytes()).unwrap(); // todo
+                    self.dest.write(token.segment.as_bytes()).unwrap(); // todo
                     self.valuetype = ValueType::Text;
                 }
             },
-            Event::ValueBase64(code) => {
+            TokenKind::ValueBase64 => {
                 if self.ismatch {
                     let mut decoder = DecodeWriter::new_with_state(&mut self.dest, self.b64state);
-                    decoder.write(code.as_bytes()).unwrap(); // todo
+                    decoder.write(token.segment.as_bytes()).unwrap(); // todo
                     self.b64state = decoder.get_state();
                     self.valuetype = ValueType::Base64;
                 }
             },
-            Event::ValueFinish => {
+            TokenKind::ValueFinish => {
                 if self.ismatch {
                     if self.valuetype == ValueType::Base64 {
                         // TODO: consider raising an error if it isn't in a valid end state
@@ -116,9 +103,9 @@ fn parse_arguments() -> Result<(String, u8), &'static str> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (attrtype, delimiter) = parse_arguments()?;
-    let mut event_receiver = EventReceiver::new(attrtype, stdout());
-    event_receiver.set_delimiter(delimiter);
-    let lexer = Lexer::new(event_receiver);
+    let mut token_receiver = TokenReceiver::new(attrtype, stdout());
+    token_receiver.set_delimiter(delimiter);
+    let lexer = Lexer::new(token_receiver);
     let unfolder = Unfolder::new(lexer);
     let mut crstripper = CrStripper::new(unfolder);
     copy(&mut stdin(), &mut WriteLocWrapper::new(&mut crstripper))?;

@@ -1,6 +1,7 @@
-use std::io::Result;
-use std::str::from_utf8_unchecked;
+use std::io::{ Result, Error, ErrorKind };
 use crate::loc::{ Loc, LocWrite };
+
+const MAX_TYPE_LENGTH: usize = 1024;
 
 enum State {
     LineStart,
@@ -12,42 +13,59 @@ enum State {
     WhitespaceBefore(&'static State),
 }
 
-#[derive(PartialEq, Debug)]
-pub enum Event<'a> {
-    TypeChar(char),
-    TypeFinish,
-    ValueText(&'a str),
-    ValueBase64(&'a str),
+#[derive(Debug)]
+pub enum TokenKind {
+    AttributeType,
+    ValueText,
+    ValueBase64,
     ValueFinish,
 }
 
-pub trait ReceiveEvent {
-    fn receive_event<'a>(&mut self, event: Event<'a>);
+#[derive(Debug)]
+pub struct Token<'a> {
+    pub kind: TokenKind,
+    pub loc: Loc,
+    pub segment: &'a str,
+}
+
+pub trait ReceiveToken {
+    fn receive_token<'a>(&mut self, token: Token<'a>);
 }
 
 pub struct Lexer<R> {
     state: State,
-    event_receiver: R,
+    token_receiver: R,
+    buf: Vec<u8>,
+    token_start: Loc,
 }
 
-impl<R: ReceiveEvent> Lexer<R> {
-    pub fn new(event_receiver: R) -> Lexer<R> {
+impl<R: ReceiveToken> Lexer<R> {
+    pub fn new(token_receiver: R) -> Lexer<R> {
         Lexer{
             state: State::LineStart,
-            event_receiver,
+            token_receiver,
+            buf: Vec::with_capacity(1028),
+            token_start: Loc::new(),
         }
     }
 
-    fn emit(&mut self, event: Event) {
-        self.event_receiver.receive_event(event);
+    fn emit(&mut self, token_kind: TokenKind) {
+        let segment = unsafe { std::str::from_utf8_unchecked(&self.buf[..]) };
+        let token = Token{
+            loc: self.token_start,
+            kind: token_kind,
+            segment,
+        };
+        self.token_receiver.receive_token(token);
+        self.buf.clear();
     }
 
     pub fn get_ref(&self) -> &R {
-        &self.event_receiver
+        &self.token_receiver
     }
 
     pub fn get_mut(&mut self) -> &mut R {
-        &mut self.event_receiver
+        &mut self.token_receiver
     }
 }
 
@@ -71,16 +89,20 @@ macro_rules! BASE64_CHAR {
     () => { b'+' | b'/' | b'=' | DIGIT!() | ALPHA!() };
 }
 
-impl<R: ReceiveEvent> LocWrite for Lexer<R> {
-    fn loc_write(&mut self, _: Loc, buf: &[u8]) -> Result<usize> {
-        let mut value_start = 0;
-        for (i, c) in buf.iter().enumerate() {
+impl<R: ReceiveToken> LocWrite for Lexer<R> {
+    fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize> {
+        let mut loc = loc;
+        for c in buf.iter().copied() {
+            if !c.is_ascii() {
+                return Err(Error::new(ErrorKind::Other, format!("non-ASCII character at line {}, column {}", loc.line, loc.column)));
+            }
             self.state = match self.state {
                 State::LineStart => match c {
                     b'\n' => State::LineStart,
                     b'#' => State::CommentLine,
                     ALPHA!() => {
-                        self.emit(Event::TypeChar((*c).into()));
+                        self.token_start = loc;
+                        self.buf.push(c);
                         State::AttributeType
                     },
                     DIGIT!() => todo!(), // OIDs
@@ -93,18 +115,23 @@ impl<R: ReceiveEvent> LocWrite for Lexer<R> {
                 State::AttributeType => match c {
                     b';' => todo!(), // attribute options
                     ALPHA!() | DIGIT!() | b'-' => {
-                        self.emit(Event::TypeChar((*c).into()));
+                        if self.buf.len() >= MAX_TYPE_LENGTH {
+                            let msg = format!("maximum attribute type name length exceeded on line {}, column {}", loc.line, loc.column);
+                            return Err(Error::new(ErrorKind::Other, msg));
+                        }
+                        self.buf.push(c);
                         State::AttributeType
                     },
                     b':' => {
-                        self.emit(Event::TypeFinish);
+                        self.emit(TokenKind::AttributeType);
                         State::ValueColon
                     },
                     _ => todo!(),
                 },
                 State::ValueColon => match c {
                     SAFE_INIT_CHAR!() => {
-                        value_start = i;
+                        self.token_start = loc;
+                        self.buf.push(c);
                         State::SafeStringValue
                     },
                     b' ' => State::WhitespaceBefore(&State::SafeStringValue),
@@ -113,19 +140,25 @@ impl<R: ReceiveEvent> LocWrite for Lexer<R> {
                     _ => todo!(),
                 },
                 State::SafeStringValue => match c {
-                    SAFE_CHAR!() => State::SafeStringValue,
+                    SAFE_CHAR!() => {
+                        self.buf.push(c);
+                        State::SafeStringValue
+                    },
                     b'\n' => {
-                        self.emit(Event::ValueText(unsafe { from_utf8_unchecked(&buf[value_start..i]) }));
-                        self.emit(Event::ValueFinish);
+                        self.emit(TokenKind::ValueText);
+                        self.emit(TokenKind::ValueFinish);
                         State::LineStart
                     },
                     _ => todo!(),
                 },
                 State::Base64Value => match c {
-                    BASE64_CHAR!() => State::Base64Value,
+                    BASE64_CHAR!() => {
+                        self.buf.push(c);
+                        State::Base64Value
+                    },
                     b'\n' => {
-                        self.emit(Event::ValueBase64(unsafe { from_utf8_unchecked(&buf[value_start..i]) }));
-                        self.emit(Event::ValueFinish);
+                        self.emit(TokenKind::ValueBase64);
+                        self.emit(TokenKind::ValueFinish);
                         State::LineStart
                     },
                     _ => todo!(),
@@ -133,21 +166,24 @@ impl<R: ReceiveEvent> LocWrite for Lexer<R> {
                 State::WhitespaceBefore(next_state) => match (next_state, c) {
                     (_, b' ') => State::WhitespaceBefore(next_state),
                     (State::SafeStringValue, SAFE_INIT_CHAR!()) => {
-                        value_start = i;
+                        self.token_start = loc;
+                        self.buf.push(c);
                         State::SafeStringValue
                     },
                     (State::Base64Value, BASE64_CHAR!()) => {
-                        value_start = i;
+                        self.token_start = loc;
+                        self.buf.push(c);
                         State::Base64Value
                     },
                     (_, _) => todo!(),
                 },
             };
+            loc = loc.after(c);
         }
 
         match self.state {
-            State::SafeStringValue => self.emit(Event::ValueText(unsafe { from_utf8_unchecked(&buf[value_start..]) })),
-            State::Base64Value => self.emit(Event::ValueBase64(unsafe { from_utf8_unchecked(&buf[value_start..]) })),
+            State::SafeStringValue => self.emit(TokenKind::ValueText),
+            State::Base64Value => self.emit(TokenKind::ValueBase64),
             _ => (),
         }
         Ok(buf.len())
@@ -162,9 +198,9 @@ impl<R: ReceiveEvent> LocWrite for Lexer<R> {
 mod tests {
     use super::*;
 
-    impl<'z> ReceiveEvent for Vec<String> {
-        fn receive_event(&mut self, event: Event) {
-            self.push(format!("{:?}", event));
+    impl<'z> ReceiveToken for Vec<String> {
+        fn receive_token(&mut self, token: Token) {
+            self.push(format!("{:?}", token));
         }
     }
 
