@@ -61,19 +61,23 @@ impl<W: Write> LocWrite for LocWriteWrapper<W> {
 
 pub struct WriteLocWrapper<LW: LocWrite> {
     inner: LW,
+    loc: Loc,
 }
 
 impl<LW: LocWrite> WriteLocWrapper<LW> {
     pub fn new(inner: LW) -> WriteLocWrapper<LW> {
         WriteLocWrapper{
-            inner
+            inner,
+            loc: Loc::new(),
         }
     }
 }
 
 impl<LW: LocWrite> Write for WriteLocWrapper<LW> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.inner.loc_write(Loc::new(), buf)
+        self.inner.loc_write(self.loc, buf)?;
+        self.loc = buf.iter().copied().fold(self.loc, |loc, c| loc.after(c));
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> Result<()> {

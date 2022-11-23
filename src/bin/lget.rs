@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_receiver.set_delimiter(delimiter);
     let lexer = Lexer::new(event_receiver);
     let unfolder = Unfolder::new(LocWriteWrapper::new(lexer));
-    let mut crstripper = CrStripper::new(WriteLocWrapper::new(unfolder));
-    copy(&mut stdin(), &mut crstripper)?;
+    let mut crstripper = CrStripper::new(unfolder);
+    copy(&mut stdin(), &mut WriteLocWrapper::new(&mut crstripper))?;
     Ok(())
 }

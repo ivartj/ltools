@@ -1,5 +1,6 @@
-use std::io::Write;
 use std::io::Result;
+use crate::loc::{ Loc, LocWrite };
+use crate::skip::{ Skipper, SkipState };
 
 #[derive(PartialEq)]
 enum State {
@@ -7,52 +8,52 @@ enum State {
     Cr,
 }
 
-pub struct CrStripper<W> {
-    inner: W,
+pub struct CrStripper<LW: LocWrite> {
+    inner: LW,
     state: State,
+    skipstate: SkipState,
 }
 
-impl<W: Write> CrStripper<W> {
-    pub fn new(inner: W) -> CrStripper<W> {
-        CrStripper{ inner, state: State::Normal }
+impl<LW: LocWrite> CrStripper<LW> {
+    pub fn new(inner: LW) -> CrStripper<LW> {
+        CrStripper{ inner, state: State::Normal, skipstate: SkipState::new() }
     }
 }
 
-impl<W: Write> Write for CrStripper<W> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        let mut write_from = 0;
-        for (i, c) in buf.iter().copied().enumerate() {
+impl<LW: LocWrite> LocWrite for CrStripper<LW> {
+    fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize> {
+        let mut skipper = Skipper::<& mut LW>::new_with_state(&mut self.inner, loc, buf, self.skipstate);
+        loop {
+            let c = match skipper.lookahead() {
+                None => break,
+                Some(c) => c,
+            };
             self.state = match self.state {
                 State::Normal => match c {
-                    b'\r' => State::Cr,
-                    _ => State::Normal,
+                    b'\r' => {
+                        skipper.begin_skip()?;
+                        skipper.shift()?;
+                        State::Cr
+                    },
+                    _ => {
+                        skipper.shift()?;
+                        State::Normal
+                    },
                 },
                 State::Cr => {
                     if c == b'\n' {
-                        if i > 1 {
-                            self.inner.write(&buf[write_from..i-1])?;
-                        }
-                        write_from = i;
+                        skipper.end_skip()?;
+                        skipper.shift()?;
                         State::Normal
                     } else {
-                        if i == 0 {
-                            self.inner.write(b"\r")?;
-                        }
-                        match c {
-                            b'\r' => State::Cr,
-                            _ => State::Normal,
-                        }
+                        skipper.cancel_skip()?;
+                        State::Normal
                     }
                 },
             };
         }
-        let write_until = if buf.len() > 0 && self.state == State::Cr {
-            buf.len() - 1
-        } else {
-            buf.len()
-        };
 
-        self.inner.write(&buf[write_from..write_until])?;
+        self.skipstate = skipper.save_state();
 
         Ok(buf.len())
     }
@@ -65,12 +66,13 @@ impl<W: Write> Write for CrStripper<W> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::loc::LocWriteWrapper;
 
     #[test]
     pub fn test_a() -> Result<()> {
         let mut buf = Vec::new();
-        let mut crstripper = CrStripper::new(&mut buf);
-        crstripper.write(b"foo\r\nbar")?;
+        let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
+        crstripper.loc_write(Loc::new(), b"foo\r\nbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\nbar");
         Ok(())
     }
@@ -78,9 +80,9 @@ mod test {
     #[test]
     pub fn test_b() -> Result<()> {
         let mut buf = Vec::new();
-        let mut crstripper = CrStripper::new(&mut buf);
-        crstripper.write(b"foo\r")?;
-        crstripper.write(b"\nbar")?;
+        let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
+        crstripper.loc_write(Loc::new(), b"foo\r")?;
+        crstripper.loc_write(Loc::new(), b"\nbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\nbar");
         Ok(())
     }
@@ -88,8 +90,8 @@ mod test {
     #[test]
     pub fn test_c() -> Result<()> {
         let mut buf = Vec::new();
-        let mut crstripper = CrStripper::new(&mut buf);
-        crstripper.write(b"foo\r\r\nbar")?;
+        let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
+        crstripper.loc_write(Loc::new(), b"foo\r\r\nbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\r\nbar");
         Ok(())
     }
@@ -97,8 +99,8 @@ mod test {
     #[test]
     pub fn test_d() -> Result<()> {
         let mut buf = Vec::new();
-        let mut crstripper = CrStripper::new(&mut buf);
-        crstripper.write(b"foo\r\rbar")?;
+        let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
+        crstripper.loc_write(Loc::new(), b"foo\r\rbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\r\rbar");
         Ok(())
     }
@@ -106,10 +108,10 @@ mod test {
     #[test]
     pub fn test_e() -> Result<()> {
         let mut buf = Vec::new();
-        let mut crstripper = CrStripper::new(&mut buf);
-        crstripper.write(b"a\r")?;
-        crstripper.write(b"")?;
-        crstripper.write(b"\nb")?;
+        let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
+        crstripper.loc_write(Loc::new(), b"a\r")?;
+        crstripper.loc_write(Loc::new(), b"")?;
+        crstripper.loc_write(Loc::new(), b"\nb")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "a\nb");
         Ok(())
     }
