@@ -3,10 +3,7 @@ use ltools::unfold::Unfolder;
 use ltools::crstrip::CrStripper;
 use ltools::lexer::{ Lexer, Event, ReceiveEvent };
 use ltools::base64::{ DecodeState, DecodeWriter };
-use ltools::loc::{
-    LocWriteWrapper,
-    WriteLocWrapper,
-};
+use ltools::loc::WriteLocWrapper;
 use clap::{ command, arg, Arg };
 
 #[derive(PartialEq)]
@@ -122,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_receiver = EventReceiver::new(attrtype, stdout());
     event_receiver.set_delimiter(delimiter);
     let lexer = Lexer::new(event_receiver);
-    let unfolder = Unfolder::new(LocWriteWrapper::new(lexer));
+    let unfolder = Unfolder::new(lexer);
     let mut crstripper = CrStripper::new(unfolder);
     copy(&mut stdin(), &mut WriteLocWrapper::new(&mut crstripper))?;
     Ok(())

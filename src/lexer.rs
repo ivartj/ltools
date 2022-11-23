@@ -1,6 +1,6 @@
-use std::io::Write;
 use std::io::Result;
 use std::str::from_utf8_unchecked;
+use crate::loc::{ Loc, LocWrite };
 
 enum State {
     LineStart,
@@ -71,8 +71,8 @@ macro_rules! BASE64_CHAR {
     () => { b'+' | b'/' | b'=' | DIGIT!() | ALPHA!() };
 }
 
-impl<R: ReceiveEvent> Write for Lexer<R> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+impl<R: ReceiveEvent> LocWrite for Lexer<R> {
+    fn loc_write(&mut self, _: Loc, buf: &[u8]) -> Result<usize> {
         let mut value_start = 0;
         for (i, c) in buf.iter().enumerate() {
             self.state = match self.state {
@@ -172,7 +172,8 @@ mod tests {
     fn it_works() {
         let vec = Vec::new();
         let mut lexer = Lexer::new(vec);
-        lexer.write(b"\
+        lexer.loc_write(Loc::new(),
+                    b"\
                     # comment 1\n\
                     dn:cn=admin,ou=sa,o=system\n\
                     # comment 2\n\
