@@ -14,7 +14,6 @@ enum ValueType {
 
 struct TokenReceiver<W: Write> {
     attrtype: String,
-    attrtypepos: usize,
     ismatch: bool,
     dest: W,
     valuetype: ValueType,
@@ -26,7 +25,6 @@ impl<W: Write> TokenReceiver<W> {
     fn new(attrtype: String, dest: W) -> TokenReceiver<W> {
         TokenReceiver{
             attrtype,
-            attrtypepos: 0,
             ismatch: true, // true until non-matching char is seen
             dest,
             valuetype: ValueType::Text,
@@ -45,7 +43,7 @@ impl<W: Write> ReceiveToken for TokenReceiver<W> {
     fn receive_token(&mut self, token: Token) {
         match token.kind {
             TokenKind::AttributeType => {
-                self.ismatch = token.segment == self.attrtype;
+                self.ismatch = token.segment.to_ascii_lowercase() == self.attrtype.to_ascii_lowercase();
             },
             TokenKind::ValueText => {
                 if self.ismatch {
@@ -71,7 +69,6 @@ impl<W: Write> ReceiveToken for TokenReceiver<W> {
                     self.dest.flush().unwrap();
                 }
                 self.ismatch = true;
-                self.attrtypepos = 0;
             }
         }
     }
