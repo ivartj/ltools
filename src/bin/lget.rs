@@ -99,12 +99,20 @@ fn parse_arguments() -> Result<(String, u8), &'static str> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (attrtype, delimiter) = parse_arguments()?;
-    let mut token_receiver = TokenReceiver::new(attrtype, stdout());
-    token_receiver.set_delimiter(delimiter);
-    let lexer = Lexer::new(token_receiver);
-    let unfolder = Unfolder::new(lexer);
-    let mut crstripper = CrStripper::new(unfolder);
-    copy(&mut stdin(), &mut WriteLocWrapper::new(&mut crstripper))?;
-    Ok(())
+    let exit_code = {
+        let (attrtype, delimiter) = parse_arguments()?;
+        let mut token_receiver = TokenReceiver::new(attrtype, stdout());
+        token_receiver.set_delimiter(delimiter);
+        let lexer = Lexer::new(token_receiver);
+        let unfolder = Unfolder::new(lexer);
+        let crstripper = CrStripper::new(unfolder);
+        let result = copy(&mut stdin(), &mut WriteLocWrapper::new(crstripper));
+        if let Err(err) = result {
+            eprintln!("{}", err);
+            1
+        } else {
+            0
+        }
+    };
+    std::process::exit(exit_code);
 }

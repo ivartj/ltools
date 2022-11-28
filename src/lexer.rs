@@ -105,15 +105,21 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         self.buf.push(c);
                         State::AttributeType
                     },
-                    DIGIT!() => todo!(), // OIDs
-                    _ => todo!(),
+                    DIGIT!() => {
+                        return Err(Error::new(ErrorKind::Other, format!("unexpected digit on line {}, column {} (OID attribute types are not yet supported)", loc.line, loc.column)));
+                    }, 
+                    _ => {
+                        return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {}", loc.line, loc.column)));
+                    },
                 },
                 State::CommentLine => match c {
                     b'\n' => State::LineStart,
                     _ => State::CommentLine,
                 },
                 State::AttributeType => match c {
-                    b';' => todo!(), // attribute options
+                    b';' => {
+                        return Err(Error::new(ErrorKind::Other, format!("unexpected semicolon on line {}, column {} (attribute options are not yet supported)", loc.line, loc.column)));
+                    },
                     ALPHA!() | DIGIT!() | b'-' => {
                         if self.buf.len() >= MAX_TYPE_LENGTH {
                             let msg = format!("maximum attribute type name length exceeded on line {}, column {}", loc.line, loc.column);
@@ -126,7 +132,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         self.emit(TokenKind::AttributeType);
                         State::ValueColon
                     },
-                    _ => todo!(),
+                    _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character in attribute type name on line {}, column {}", loc.line, loc.column))),
                 },
                 State::ValueColon => match c {
                     SAFE_INIT_CHAR!() => {
@@ -137,7 +143,8 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                     b' ' => State::WhitespaceBefore(&State::SafeStringValue),
                     b':' => State::WhitespaceBefore(&State::Base64Value),
                     b'\n' => State::LineStart,
-                    _ => todo!(),
+                    b'<' => return Err(Error::new(ErrorKind::Other, format!("unexpected '<' on line {}, column {} (URL values not implemented at this time)", loc.line, loc.column))),
+                    _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} (expecting attribute value)", loc.line, loc.column))),
                 },
                 State::SafeStringValue => match c {
                     SAFE_CHAR!() => {
@@ -149,7 +156,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         self.emit(TokenKind::ValueFinish);
                         State::LineStart
                     },
-                    _ => todo!(),
+                    _ => return Err(Error::new(ErrorKind::Other, format!("illegal LDIF safe-string character on line {}, column {} (a work-around is to base64-encode the value)", loc.line, loc.column))),
                 },
                 State::Base64Value => match c {
                     BASE64_CHAR!() => {
@@ -161,7 +168,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         self.emit(TokenKind::ValueFinish);
                         State::LineStart
                     },
-                    _ => todo!(),
+                    _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {}", loc.line, loc.column))),
                 },
                 State::WhitespaceBefore(next_state) => match (next_state, c) {
                     (_, b' ') => State::WhitespaceBefore(next_state),
@@ -175,7 +182,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         self.buf.push(c);
                         State::Base64Value
                     },
-                    (_, _) => todo!(),
+                    (_, _) => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {}", loc.line, loc.column))),
                 },
             };
             loc = loc.after(c);
