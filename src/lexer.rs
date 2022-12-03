@@ -13,15 +13,16 @@ enum State {
     WhitespaceBefore(&'static State),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenKind {
     AttributeType,
     ValueText,
     ValueBase64,
     ValueFinish,
+    EmptyLine,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Token<'a> {
     pub kind: TokenKind,
     pub loc: Loc,
@@ -98,7 +99,10 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
             }
             self.state = match self.state {
                 State::LineStart => match c {
-                    b'\n' => State::LineStart,
+                    b'\n' => {
+                        self.emit(TokenKind::EmptyLine);
+                        State::LineStart
+                    },
                     b'#' => State::CommentLine,
                     ALPHA!() => {
                         self.token_start = loc;
@@ -205,9 +209,9 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
 mod tests {
     use super::*;
 
-    impl<'z> ReceiveToken for Vec<String> {
+    impl ReceiveToken for Vec<(TokenKind, String)> {
         fn receive_token(&mut self, token: Token) {
-            self.push(format!("{:?}", token));
+            self.push((token.kind, token.segment.to_owned()));
         }
     }
 
@@ -224,25 +228,29 @@ mod tests {
                     cn: admin\n\
                     # comment 4\n\
                     sn:: MO4Z2VzdMO4bA==\n\
+                    \n\
+                    dn: cn=uaadmin,ou=sa,o=data\n\
                     ").expect("success");
         let mut iter = lexer.get_ref().iter();
-        assert_eq!(iter.next(), Some(&String::from("TypeChar('d')")));
-        assert_eq!(iter.next(), Some(&String::from("TypeChar('n')")));
-        assert_eq!(iter.next(), Some(&String::from("TypeFinish")));
-        assert_eq!(iter.next(), Some(&String::from("ValueText(\"cn=admin,ou=sa,o=system\")")));
-        assert_eq!(iter.next(), Some(&String::from("ValueFinish")));
+        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("dn"))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueText, String::from("cn=admin,ou=sa,o=system"))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
 
-        assert_eq!(iter.next(), Some(&String::from("TypeChar('c')")));
-        assert_eq!(iter.next(), Some(&String::from("TypeChar('n')")));
-        assert_eq!(iter.next(), Some(&String::from("TypeFinish")));
-        assert_eq!(iter.next(), Some(&String::from("ValueText(\"admin\")")));
-        assert_eq!(iter.next(), Some(&String::from("ValueFinish")));
+        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("cn"))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueText, String::from("admin"))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
 
-        assert_eq!(iter.next(), Some(&String::from("TypeChar('s')")));
-        assert_eq!(iter.next(), Some(&String::from("TypeChar('n')")));
-        assert_eq!(iter.next(), Some(&String::from("TypeFinish")));
-        assert_eq!(iter.next(), Some(&String::from("ValueBase64(\"MO4Z2VzdMO4bA==\")")));
-        assert_eq!(iter.next(), Some(&String::from("ValueFinish")));
+        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("sn"))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueBase64, String::from("MO4Z2VzdMO4bA=="))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
+
+        assert_eq!(iter.next(), Some(&(TokenKind::EmptyLine, String::from(""))));
+
+        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("dn"))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data"))));
+        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
+
+        assert_eq!(iter.next(), None);
     }
 }
 

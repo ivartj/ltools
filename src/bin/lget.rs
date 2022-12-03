@@ -70,6 +70,7 @@ impl<W: Write> ReceiveToken for TokenReceiver<W> {
                 }
                 self.ismatch = true;
             }
+            TokenKind::EmptyLine => {},
         }
     }
 }
