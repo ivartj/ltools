@@ -12,7 +12,7 @@ enum ValueType {
     Base64,
 }
 
-struct TokenReceiver<W: Write> {
+struct TsvTokenReceiver<W: Write> {
     attributes: Vec<String>,
     entryvalues: Vec<Vec<Vec<u8>>>,
     attrmatch: Option<usize>, // index of currently matched attribute
@@ -22,10 +22,10 @@ struct TokenReceiver<W: Write> {
     b64state: DecodeState,
 }
 
-impl<W: Write> TokenReceiver<W> {
-    fn new(attributes: Vec<String>, dest: W) -> TokenReceiver<W> {
+impl<W: Write> TsvTokenReceiver<W> {
+    fn new(attributes: Vec<String>, dest: W) -> TsvTokenReceiver<W> {
         let entryvalues = attributes.iter().map(|_| Vec::new()).collect();
-        TokenReceiver{
+        TsvTokenReceiver{
             attributes,
             entryvalues,
             attrmatch: None,
@@ -80,7 +80,7 @@ impl<'a, E> Iterator for CartesianProduct<'a, E> {
     }
 }
 
-impl<W: Write> ReceiveToken for TokenReceiver<W> {
+impl<W: Write> ReceiveToken for TsvTokenReceiver<W> {
     fn receive_token(&mut self, token: Token) {
         match token.kind {
             TokenKind::AttributeType => {
@@ -147,7 +147,7 @@ fn parse_arguments() -> Result<Vec<String>, &'static str> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exit_code = {
         let attributes = parse_arguments()?;
-        let token_receiver = TokenReceiver::new(attributes, stdout());
+        let token_receiver = TsvTokenReceiver::new(attributes, stdout());
         let lexer = Lexer::new(token_receiver);
         let unfolder = Unfolder::new(lexer);
         let crstripper = CrStripper::new(unfolder);
