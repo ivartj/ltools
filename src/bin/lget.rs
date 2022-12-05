@@ -5,6 +5,7 @@ use ltools::lexer::{ Lexer, Token, TokenKind, ReceiveToken };
 use ltools::base64::{ DecodeState, DecodeWriter };
 use ltools::loc::WriteLocWrapper;
 use clap::{ command, arg, Arg };
+use ltools::cartesian::cartesian_product;
 
 #[derive(PartialEq)]
 enum ValueType {
@@ -97,53 +98,6 @@ impl<W: Write> TsvTokenReceiver<W> {
             valuetype: ValueType::Text,
             b64state: DecodeState::new(),
         }
-    }
-}
-
-struct CartesianProduct<'a, E> {
-    vec: &'a Vec<Vec<E>>,
-    counters: Vec<usize>,
-}
-
-fn cartesian_product<'a, E>(vec: &'a Vec<Vec<E>>) -> CartesianProduct<'a, E> {
-    CartesianProduct{
-        vec,
-        counters: vec![0; vec.len()],
-    }
-}
-
-impl<'a, E> Iterator for CartesianProduct<'a, E> {
-    type Item = Vec<&'a E>;
-
-    fn next(&mut self) -> Option<Vec<&'a E>> {
-        if self.counters[0] == self.vec[0].len() {
-            return None;
-        }
-
-        if self.vec.iter().any(|v| v.len() == 0) {
-            return None;
-        }
-
-        let retval = self.counters.iter()
-            .copied()
-            .enumerate()
-            .map(|(i, counter)| &self.vec[i][counter])
-            .collect();
-
-        // increment counters
-        for (i, counter) in self.counters.iter_mut().enumerate().rev() {
-            *counter += 1;
-            if *counter == self.vec[i].len() {
-                if i != 0 {
-                    *counter = 0;
-                }
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        Some(retval)
     }
 }
 

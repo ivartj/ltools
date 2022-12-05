@@ -5,3 +5,4 @@ pub mod base64;
 pub mod filter;
 pub mod loc;
 pub mod skip;
+pub mod cartesian;
