@@ -74,6 +74,7 @@ impl<W: Write> ReceiveToken for TokenReceiver<W> {
         }
     }
 }
+
 struct TsvTokenReceiver<W: Write> {
     attributes: Vec<String>,
     entryvalues: Vec<Vec<Vec<u8>>>,
@@ -116,6 +117,10 @@ impl<'a, E> Iterator for CartesianProduct<'a, E> {
 
     fn next(&mut self) -> Option<Vec<&'a E>> {
         if self.counters[0] == self.vec[0].len() {
+            return None;
+        }
+
+        if self.vec.iter().any(|v| v.len() == 0) {
             return None;
         }
 
