@@ -146,7 +146,11 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                     },
                     b' ' => State::WhitespaceBefore(&State::SafeStringValue),
                     b':' => State::WhitespaceBefore(&State::Base64Value),
-                    b'\n' => State::LineStart,
+                    b'\n' => {
+                        self.emit(TokenKind::ValueText);
+                        self.emit(TokenKind::ValueFinish);
+                        State::LineStart
+                    },
                     b'<' => return Err(Error::new(ErrorKind::Other, format!("unexpected '<' on line {}, column {} (URL values not implemented at this time)", loc.line, loc.column))),
                     _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} (expecting attribute value)", loc.line, loc.column))),
                 },
@@ -172,7 +176,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         self.emit(TokenKind::ValueFinish);
                         State::LineStart
                     },
-                    _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {}", loc.line, loc.column))),
+                    _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} while expecting base64 code", loc.line, loc.column))),
                 },
                 State::WhitespaceBefore(next_state) => match (next_state, c) {
                     (_, b' ') => State::WhitespaceBefore(next_state),
@@ -186,7 +190,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         self.buf.push(c);
                         State::Base64Value
                     },
-                    (_, _) => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {}", loc.line, loc.column))),
+                    (_, _) => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} while expecting value after attribute type", loc.line, loc.column))),
                 },
             };
             loc = loc.after(c);
@@ -200,8 +204,24 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
         Ok(buf.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
-        todo!()
+    /// This method is used to indicate end-of-file.
+    fn loc_flush(&mut self, loc: Loc) -> Result<()> {
+        match self.state {
+            State::LineStart => self.emit(TokenKind::EmptyLine),
+            State::CommentLine => self.emit(TokenKind::EmptyLine),
+            State::AttributeType => return Err(Error::new(ErrorKind::Other, format!("unexpected end of file on on line {}, column {} inside attribute type", loc.line, loc.column))),
+            State::ValueColon | State::SafeStringValue | State::WhitespaceBefore(_) => {
+                self.emit(TokenKind::ValueText);
+                self.emit(TokenKind::ValueFinish);
+                self.emit(TokenKind::EmptyLine);
+            },
+            State::Base64Value => {
+                self.emit(TokenKind::ValueBase64);
+                self.emit(TokenKind::ValueFinish);
+                self.emit(TokenKind::EmptyLine);
+            },
+        }
+        Ok(())
     }
 }
 

@@ -23,6 +23,7 @@ impl<LW: LocWrite> Unfolder<LW> {
             skipstate: SkipState::new(),
         }
     }
+
 }
 
 impl<LW: LocWrite> LocWrite for Unfolder<LW> {
@@ -57,8 +58,10 @@ impl<LW: LocWrite> LocWrite for Unfolder<LW> {
         Ok(buf.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
-        LocWrite::flush(&mut self.inner)
+    fn loc_flush(&mut self, loc: Loc) -> Result<()> {
+        self.skipstate.write_remainder(&mut self.inner)?;
+        self.inner.loc_flush(loc)?;
+        Ok(())
     }
 }
 

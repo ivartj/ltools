@@ -34,7 +34,7 @@ impl Loc {
 
 pub trait LocWrite {
     fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize>;
-    fn flush(&mut self) -> Result<()>;
+    fn loc_flush(&mut self, loc: Loc) -> Result<()>;
 }
 
 pub struct LocWriteWrapper<W: Write> {
@@ -54,7 +54,7 @@ impl<W: Write> LocWrite for LocWriteWrapper<W> {
         self.inner.write(buf)
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn loc_flush(&mut self, _: Loc) -> Result<()> {
         self.inner.flush()
     }
 }
@@ -81,7 +81,7 @@ impl<LW: LocWrite> Write for WriteLocWrapper<LW> {
     }
 
     fn flush(&mut self) -> Result<()> {
-        self.inner.flush()
+        self.inner.loc_flush(self.loc)
     }
 }
 
@@ -90,8 +90,8 @@ impl<LW: LocWrite> LocWrite for &mut LW {
         (**self).loc_write(loc, buf)
     }
 
-    fn flush(&mut self) -> Result<()> {
-        (**self).flush()
+    fn loc_flush(&mut self, loc: Loc) -> Result<()> {
+        (**self).loc_flush(loc)
     }
 }
 
@@ -128,7 +128,7 @@ pub mod test {
             Ok(buf.len())
         }
 
-        fn flush(&mut self) -> Result<()> {
+        fn loc_flush(&mut self, _: Loc) -> Result<()> {
             Ok(())
         }
     }

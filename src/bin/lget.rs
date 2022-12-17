@@ -179,7 +179,9 @@ fn receive_tokens<TR: ReceiveToken>(tr: TR) -> std::io::Result<()> {
     let lexer = Lexer::new(tr);
     let unfolder = Unfolder::new(lexer);
     let crstripper = CrStripper::new(unfolder);
-    copy(&mut stdin(), &mut WriteLocWrapper::new(crstripper))?;
+    let mut wrapper = WriteLocWrapper::new(crstripper);
+    copy(&mut stdin(), &mut wrapper)?;
+    wrapper.flush()?;
     Ok(())
 }
 

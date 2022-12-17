@@ -32,6 +32,13 @@ pub enum SkipState {
 
 impl SkipState {
     pub fn new() -> SkipState { SkipState::Writing }
+
+    pub fn write_remainder<LW: LocWrite>(&self, dest: &mut LW) -> Result<()> {
+        if let SkipState::SkippingWithPrefix(loc, prefixbuf, prefixlen) = *self {
+            dest.loc_write(loc, &prefixbuf[..prefixlen])?;
+        }
+        Ok(())
+    }
 }
 
 impl<'a, LW: LocWrite> Skipper<'a, LW> {
