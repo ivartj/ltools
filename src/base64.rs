@@ -1,4 +1,5 @@
 use std::io::{ Write, Result, Error, ErrorKind };
+use std::default::Default;
 
 #[derive(Clone, Copy)]
 enum State {
@@ -16,8 +17,8 @@ pub struct DecodeState {
     octet: u8,
 }
 
-impl DecodeState {
-    pub fn new() -> DecodeState {
+impl Default for DecodeState {
+    fn default() -> Self {
         DecodeState{ state: State::B0, octet: 0u8 }
     }
 }
@@ -50,7 +51,7 @@ impl<W: Write> DecodeWriter<W> {
     }
 
     pub fn get_state(&self) -> DecodeState {
-        return DecodeState {
+        DecodeState {
             state: self.state,
             octet: self.octet,
         }
@@ -70,7 +71,7 @@ fn value_of(digit: u8) -> Option<u8> {
 
 impl<W: Write> Write for DecodeWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        for c in buf.into_iter().copied() {
+        for c in buf.iter().copied() {
             self.state = match (self.state, c, value_of(c)) {
                 (State::B0, _, Some(value)) => {
                     self.octet = value << 2;
@@ -78,20 +79,20 @@ impl<W: Write> Write for DecodeWriter<W> {
                 },
                 (State::B6, _, Some(value)) => {
                     self.octet |= value >> 4;
-                    self.inner.write(&[self.octet])?;
+                    self.inner.write_all(&[self.octet])?;
                     self.octet = value << 4;
                     State::B4
                 },
                 (State::B4, _, Some(value)) => {
                     self.octet |= value >> 2;
-                    self.inner.write(&[self.octet])?;
+                    self.inner.write_all(&[self.octet])?;
                     self.octet = value << 6;
                     State::B2
                 },
                 (State::B4, b'=', _) => State::P1,
                 (State::B2, _, Some(value)) => {
                     self.octet |= value;
-                    self.inner.write(&[self.octet])?;
+                    self.inner.write_all(&[self.octet])?;
                     State::B0
                 },
                 (State::B2 | State::P1, b'=', _) => State::P0,

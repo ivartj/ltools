@@ -7,7 +7,7 @@ use crate::loc::{ Loc, LocWrite };
 
 const MAX_PREFIX: usize = 4;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum SkipToken {
     Byte(u8),
     End,
@@ -23,16 +23,18 @@ pub struct Skipper<'a, LW: LocWrite>  {
     state: SkipState,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum SkipState {
     Writing,
     SkippingFrom(Loc, usize),
     SkippingWithPrefix(Loc, [u8;MAX_PREFIX], usize),
 }
 
-impl SkipState {
-    pub fn new() -> SkipState { SkipState::Writing }
+impl Default for SkipState {
+    fn default() -> Self { SkipState::Writing }
+}
 
+impl SkipState {
     pub fn write_remainder<LW: LocWrite>(&self, dest: &mut LW) -> Result<()> {
         if let SkipState::SkippingWithPrefix(loc, prefixbuf, prefixlen) = *self {
             dest.loc_write(loc, &prefixbuf[..prefixlen])?;
@@ -92,7 +94,7 @@ impl<'a, LW: LocWrite> Skipper<'a, LW> {
         }
         self.loc = self.loc.after(lookahead);
         self.pos += 1;
-        if self.lookahead() == None {
+        if self.lookahead().is_none() {
             match self.state {
                 SkipState::Writing => {
                     self.inner.loc_write(self.write_from_loc, &self.buf[self.write_from..])?;
@@ -117,7 +119,7 @@ impl<'a, LW: LocWrite> Skipper<'a, LW> {
     pub fn end_skip(&mut self) -> Result<()> {
         match self.state {
             SkipState::SkippingFrom(_, write_until) => {
-                if self.lookahead() != None {
+                if self.lookahead().is_some() {
                     self.inner.loc_write(self.write_from_loc, &self.buf[self.write_from..write_until])?;
                 }
             },
@@ -172,7 +174,7 @@ mod test {
     #[test]
     fn test_a() -> Result<()> {
         let mut writes = LocWrites::new();
-        let mut skipper = Skipper::new(&mut writes, Loc::new(), b"abcd");
+        let mut skipper = Skipper::new(&mut writes, Loc::default(), b"abcd");
         skipper.shift()?;
         skipper.begin_skip()?;
         skipper.shift()?;
@@ -189,13 +191,13 @@ mod test {
     #[test]
     fn test_b() -> Result<()> {
         let mut writes = LocWrites::new();
-        let mut skipper = Skipper::new(&mut writes, Loc::new(), b"a\n");
+        let mut skipper = Skipper::new(&mut writes, Loc::default(), b"a\n");
         skipper.shift()?;
         skipper.begin_skip()?;
         skipper.shift()?;
         assert_eq!(skipper.lookahead(), None);
         let saved_state = skipper.save_state();
-        let loc = b"a\n".iter().copied().fold(Loc::new(), |l, c| l.after(c));
+        let loc = b"a\n".iter().copied().fold(Loc::default(), |l, c| l.after(c));
         skipper = Skipper::new_with_state(&mut writes, loc, b" d", saved_state);
         skipper.shift()?;
         skipper.end_skip()?;
@@ -212,7 +214,7 @@ mod test {
     #[test]
     fn test_c() -> Result<()> {
         let mut writes = LocWrites::new();
-        let mut skipper = Skipper::new(&mut writes, Loc::new(), b"abc");
+        let mut skipper = Skipper::new(&mut writes, Loc::default(), b"abc");
         skipper.shift()?;
         skipper.begin_skip()?;
         skipper.shift()?;
@@ -228,13 +230,13 @@ mod test {
     #[test]
     fn test_d() -> Result<()> {
         let mut writes = LocWrites::new();
-        let mut skipper = Skipper::new(&mut writes, Loc::new(), b"ab");
+        let mut skipper = Skipper::new(&mut writes, Loc::default(), b"ab");
         skipper.shift()?;
         skipper.begin_skip()?;
         skipper.shift()?;
         assert_eq!(skipper.lookahead(), None);
         let saved_state = skipper.save_state();
-        let loc = b"ab".iter().copied().fold(Loc::new(), |l, c| l.after(c));
+        let loc = b"ab".iter().copied().fold(Loc::default(), |l, c| l.after(c));
         skipper = Skipper::new_with_state(&mut writes, loc, b"cd", saved_state);
         skipper.shift()?;
         skipper.cancel_skip()?;

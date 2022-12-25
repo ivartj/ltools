@@ -16,7 +16,7 @@ pub struct CrStripper<LW: LocWrite> {
 
 impl<LW: LocWrite> CrStripper<LW> {
     pub fn new(inner: LW) -> CrStripper<LW> {
-        CrStripper{ inner, state: State::Normal, skipstate: SkipState::new() }
+        CrStripper{ inner, state: State::Normal, skipstate: SkipState::default() }
     }
 }
 
@@ -74,7 +74,7 @@ mod test {
     pub fn test_a() -> Result<()> {
         let mut buf = Vec::new();
         let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
-        crstripper.loc_write(Loc::new(), b"foo\r\nbar")?;
+        crstripper.loc_write(Loc::default(), b"foo\r\nbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\nbar");
         Ok(())
     }
@@ -83,8 +83,8 @@ mod test {
     pub fn test_b() -> Result<()> {
         let mut buf = Vec::new();
         let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
-        crstripper.loc_write(Loc::new(), b"foo\r")?;
-        crstripper.loc_write(Loc::new(), b"\nbar")?;
+        crstripper.loc_write(Loc::default(), b"foo\r")?;
+        crstripper.loc_write(Loc::default(), b"\nbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\nbar");
         Ok(())
     }
@@ -93,7 +93,7 @@ mod test {
     pub fn test_c() -> Result<()> {
         let mut buf = Vec::new();
         let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
-        crstripper.loc_write(Loc::new(), b"foo\r\r\nbar")?;
+        crstripper.loc_write(Loc::default(), b"foo\r\r\nbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\r\nbar");
         Ok(())
     }
@@ -102,7 +102,7 @@ mod test {
     pub fn test_d() -> Result<()> {
         let mut buf = Vec::new();
         let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
-        crstripper.loc_write(Loc::new(), b"foo\r\rbar")?;
+        crstripper.loc_write(Loc::default(), b"foo\r\rbar")?;
         assert_eq!(String::from_utf8_lossy(buf.as_slice()), "foo\r\rbar");
         Ok(())
     }
@@ -111,9 +111,9 @@ mod test {
     pub fn test_e() -> Result<()> {
         let mut buf = Vec::new();
         let mut crstripper = CrStripper::new(LocWriteWrapper::new(&mut buf));
-        crstripper.loc_write(Loc::new(), b"a\r")?;
-        crstripper.loc_write(Loc::new(), b"")?;
-        crstripper.loc_write(Loc::new(), b"\nb")?;
+        crstripper.loc_write(Loc::default(), b"a\r")?;
+        crstripper.loc_write(Loc::default(), b"")?;
+        crstripper.loc_write(Loc::default(), b"\nb")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "a\nb");
         Ok(())
     }

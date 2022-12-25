@@ -4,9 +4,9 @@ pub struct CartesianProduct<'a, E> {
     counters: Vec<usize>,
 }
 
-pub fn cartesian_product<'a, E>(vec: &'a Vec<Vec<E>>) -> CartesianProduct<'a, E> {
+pub fn cartesian_product<E>(vec: &Vec<Vec<E>>) -> CartesianProduct<'_, E> {
     CartesianProduct{
-        empty: vec.iter().any(|v| v.len() == 0),
+        empty: vec.iter().any(Vec::is_empty),
         vec,
         counters: vec![0; vec.len()],
     }

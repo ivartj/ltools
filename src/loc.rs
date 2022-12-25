@@ -1,20 +1,23 @@
 use std::io::{ Result, Write };
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub struct Loc {
     pub line: usize,
     pub column: usize,
     pub offset: usize,
 }
 
-impl Loc {
-    pub fn new() -> Loc {
+impl Default for Loc {
+    fn default() -> Self {
         Loc{
             line: 1,
             column: 1,
             offset: 0,
         }
     }
+}
+
+impl Loc {
 
     pub fn after(self, c: u8) -> Self {
         match c {
@@ -68,7 +71,7 @@ impl<LW: LocWrite> WriteLocWrapper<LW> {
     pub fn new(inner: LW) -> WriteLocWrapper<LW> {
         WriteLocWrapper{
             inner,
-            loc: Loc::new(),
+            loc: Loc::default(),
         }
     }
 }

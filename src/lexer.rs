@@ -13,7 +13,7 @@ enum State {
     WhitespaceBefore(&'static State),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum TokenKind {
     AttributeType,
     ValueText,
@@ -22,7 +22,7 @@ pub enum TokenKind {
     EmptyLine,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Token<'a> {
     pub kind: TokenKind,
     pub loc: Loc,
@@ -30,7 +30,7 @@ pub struct Token<'a> {
 }
 
 pub trait ReceiveToken {
-    fn receive_token<'a>(&mut self, token: Token<'a>);
+    fn receive_token(&mut self, token: Token<'_>);
 }
 
 pub struct Lexer<R> {
@@ -46,7 +46,7 @@ impl<R: ReceiveToken> Lexer<R> {
             state: State::LineStart,
             token_receiver,
             buf: Vec::with_capacity(1028),
-            token_start: Loc::new(),
+            token_start: Loc::default(),
         }
     }
 
@@ -239,7 +239,7 @@ mod tests {
     fn it_works() {
         let vec = Vec::new();
         let mut lexer = Lexer::new(vec);
-        lexer.loc_write(Loc::new(),
+        lexer.loc_write(Loc::default(),
                     b"\
                     # comment 1\n\
                     dn:cn=admin,ou=sa,o=system\n\

@@ -1,11 +1,11 @@
-use std::io::{stdin, stdout, copy, Write};
-use ltools::unfold::Unfolder;
-use ltools::crstrip::CrStripper;
-use ltools::lexer::{ Lexer, Token, TokenKind, ReceiveToken };
-use ltools::base64::{ DecodeState, DecodeWriter };
-use ltools::loc::WriteLocWrapper;
-use clap::{ command, arg, Arg };
+use clap::{arg, command, Arg};
+use ltools::base64::{DecodeState, DecodeWriter};
 use ltools::cartesian::cartesian_product;
+use ltools::crstrip::CrStripper;
+use ltools::lexer::{Lexer, ReceiveToken, Token, TokenKind};
+use ltools::loc::WriteLocWrapper;
+use ltools::unfold::Unfolder;
+use std::io::{copy, stdin, stdout, Write};
 
 #[derive(PartialEq)]
 enum ValueType {
@@ -24,12 +24,12 @@ struct TokenReceiver<W: Write> {
 
 impl<W: Write> TokenReceiver<W> {
     fn new(attrtype: String, dest: W) -> TokenReceiver<W> {
-        TokenReceiver{
+        TokenReceiver {
             attrtype,
             ismatch: true, // true until non-matching char is seen
             dest,
             valuetype: ValueType::Text,
-            b64state: DecodeState::new(),
+            b64state: DecodeState::default(),
             delimiter: b'\n',
         }
     }
@@ -44,34 +44,35 @@ impl<W: Write> ReceiveToken for TokenReceiver<W> {
     fn receive_token(&mut self, token: Token) {
         match token.kind {
             TokenKind::AttributeType => {
-                self.ismatch = token.segment.to_ascii_lowercase() == self.attrtype.to_ascii_lowercase();
-            },
+                self.ismatch =
+                    token.segment.to_ascii_lowercase() == self.attrtype.to_ascii_lowercase();
+            }
             TokenKind::ValueText => {
                 if self.ismatch {
-                    self.dest.write(token.segment.as_bytes()).unwrap(); // todo
+                    self.dest.write_all(token.segment.as_bytes()).unwrap(); // todo
                     self.valuetype = ValueType::Text;
                 }
-            },
+            }
             TokenKind::ValueBase64 => {
                 if self.ismatch {
                     let mut decoder = DecodeWriter::new_with_state(&mut self.dest, self.b64state);
-                    decoder.write(token.segment.as_bytes()).unwrap(); // todo
+                    decoder.write_all(token.segment.as_bytes()).unwrap(); // todo
                     self.b64state = decoder.get_state();
                     self.valuetype = ValueType::Base64;
                 }
-            },
+            }
             TokenKind::ValueFinish => {
                 if self.ismatch {
                     if self.valuetype == ValueType::Base64 {
                         // TODO: consider raising an error if it isn't in a valid end state
-                        self.b64state = DecodeState::new();
+                        self.b64state = DecodeState::default();
                     }
-                    self.dest.write(&[self.delimiter]).unwrap(); // todo
+                    self.dest.write_all(&[self.delimiter]).unwrap(); // todo
                     self.dest.flush().unwrap();
                 }
                 self.ismatch = true;
             }
-            TokenKind::EmptyLine => {},
+            TokenKind::EmptyLine => {}
         }
     }
 }
@@ -89,14 +90,14 @@ struct TsvTokenReceiver<W: Write> {
 impl<W: Write> TsvTokenReceiver<W> {
     fn new(attributes: Vec<String>, dest: W) -> TsvTokenReceiver<W> {
         let entryvalues = attributes.iter().map(|_| Vec::new()).collect();
-        TsvTokenReceiver{
+        TsvTokenReceiver {
             attributes,
             entryvalues,
             attrmatch: None,
             valuebuf: Vec::new(),
             dest,
             valuetype: ValueType::Text,
-            b64state: DecodeState::new(),
+            b64state: DecodeState::default(),
         }
     }
 }
@@ -106,28 +107,31 @@ impl<W: Write> ReceiveToken for TsvTokenReceiver<W> {
         match token.kind {
             TokenKind::AttributeType => {
                 let attrlowercase = token.segment.to_ascii_lowercase();
-                self.attrmatch = self.attributes.iter()
+                self.attrmatch = self
+                    .attributes
+                    .iter()
                     .position(|attr| attr.to_ascii_lowercase() == attrlowercase);
-            },
+            }
             TokenKind::ValueText => {
                 if self.attrmatch.is_some() {
-                    self.valuebuf.write(token.segment.as_bytes()).unwrap(); // todo
+                    self.valuebuf.write_all(token.segment.as_bytes()).unwrap(); // todo
                     self.valuetype = ValueType::Text;
                 }
-            },
+            }
             TokenKind::ValueBase64 => {
                 if self.attrmatch.is_some() {
-                    let mut decoder = DecodeWriter::new_with_state(&mut self.valuebuf, self.b64state);
-                    decoder.write(token.segment.as_bytes()).unwrap(); // todo
+                    let mut decoder =
+                        DecodeWriter::new_with_state(&mut self.valuebuf, self.b64state);
+                    decoder.write_all(token.segment.as_bytes()).unwrap(); // todo
                     self.b64state = decoder.get_state();
                     self.valuetype = ValueType::Base64;
                 }
-            },
+            }
             TokenKind::ValueFinish => {
                 if let Some(attridx) = self.attrmatch {
                     if self.valuetype == ValueType::Base64 {
                         // TODO: consider raising an error if it isn't in a valid end state
-                        self.b64state = DecodeState::new();
+                        self.b64state = DecodeState::default();
                     }
                     self.entryvalues[attridx].push(self.valuebuf.clone());
                     self.valuebuf.clear();
@@ -137,16 +141,16 @@ impl<W: Write> ReceiveToken for TsvTokenReceiver<W> {
                 for record in cartesian_product(&self.entryvalues) {
                     for (i, value) in record.iter().enumerate() {
                         if i != 0 {
-                            self.dest.write(b"\t").unwrap(); // todo
+                            self.dest.write_all(b"\t").unwrap(); // todo
                         }
-                        self.dest.write(value).unwrap(); // todo
+                        self.dest.write_all(value).unwrap(); // todo
                     }
-                    self.dest.write(b"\n").unwrap(); // todo
+                    self.dest.write_all(b"\n").unwrap(); // todo
                 }
                 for v in self.entryvalues.iter_mut() {
                     v.clear();
                 }
-            },
+            }
         }
     }
 }
@@ -157,10 +161,13 @@ fn parse_arguments() -> Result<(Vec<String>, u8), &'static str> {
     let matches = command!("lget")
         .disable_colored_help(true)
         .arg(arg!(<ATTRIBUTES> ... "The attribute type name to get values of."))
-        .arg(Arg::new("null-delimit")
-             .short('0').long("null-delimit")
-             .action(clap::ArgAction::SetTrue)
-             .help("Terminate output values with null bytes (0x00) instead of newlines."))
+        .arg(
+            Arg::new("null-delimit")
+                .short('0')
+                .long("null-delimit")
+                .action(clap::ArgAction::SetTrue)
+                .help("Terminate output values with null bytes (0x00) instead of newlines."),
+        )
         .get_matches();
 
     if matches.get_flag("null-delimit") {

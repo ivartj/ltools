@@ -20,13 +20,13 @@ pub enum Filter {
     // TODO: Extensible(...
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct AttributeDescription {
     attribute_type: String,
     // TODO: add options
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum FilterType {
     Equal,
     Approx,
@@ -77,7 +77,7 @@ fn attribute_value(input: &str) -> IResult<&str, Vec<u8>> {
                 |c| { let mut v = Vec::new(); v.extend(c.encode_utf8(&mut [0u8;4]).as_bytes()); v }
             )
         )),
-        || Vec::new(),
+        Vec::new,
         |mut v, bytes| { v.extend(bytes); v },
     )(input)
 }
@@ -114,13 +114,13 @@ fn not_filter(input: &str) -> IResult<&str, Filter> {
 
 fn and_filter(input: &str) -> IResult<&str, Filter> {
     map(delimited(tag("(&"), many1(filter), char(')')),
-        |filterlist| Filter::And(filterlist)
+        Filter::And
     )(input)
 }
 
 fn or_filter(input: &str) -> IResult<&str, Filter> {
     map(delimited(tag("(|"), many1(filter), char(')')),
-        |filterlist| Filter::Or(filterlist)
+        Filter::Or
     )(input)
 }
 
