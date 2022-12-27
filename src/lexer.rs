@@ -29,8 +29,8 @@ pub struct Token<'a> {
     pub segment: &'a str,
 }
 
-pub trait ReceiveToken {
-    fn receive_token(&mut self, token: Token<'_>);
+pub trait WriteToken {
+    fn write_token<'a>(&mut self, token: Token<'a>) -> Result<()>;
 }
 
 pub struct Lexer<R> {
@@ -40,7 +40,7 @@ pub struct Lexer<R> {
     token_start: Loc,
 }
 
-impl<R: ReceiveToken> Lexer<R> {
+impl<R: WriteToken> Lexer<R> {
     pub fn new(token_receiver: R) -> Lexer<R> {
         Lexer{
             state: State::LineStart,
@@ -50,15 +50,16 @@ impl<R: ReceiveToken> Lexer<R> {
         }
     }
 
-    fn emit(&mut self, token_kind: TokenKind) {
+    fn emit(&mut self, token_kind: TokenKind) -> Result<()> {
         let segment = unsafe { std::str::from_utf8_unchecked(&self.buf[..]) };
         let token = Token{
             loc: self.token_start,
             kind: token_kind,
             segment,
         };
-        self.token_receiver.receive_token(token);
+        self.token_receiver.write_token(token)?;
         self.buf.clear();
+        Ok(())
     }
 
     pub fn get_ref(&self) -> &R {
@@ -90,7 +91,7 @@ macro_rules! BASE64_CHAR {
     () => { b'+' | b'/' | b'=' | DIGIT!() | ALPHA!() };
 }
 
-impl<R: ReceiveToken> LocWrite for Lexer<R> {
+impl<R: WriteToken> LocWrite for Lexer<R> {
     fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize> {
         let mut loc = loc;
         for c in buf.iter().copied() {
@@ -100,7 +101,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
             self.state = match self.state {
                 State::LineStart => match c {
                     b'\n' => {
-                        self.emit(TokenKind::EmptyLine);
+                        self.emit(TokenKind::EmptyLine)?;
                         State::LineStart
                     },
                     b'#' => State::CommentLine,
@@ -133,7 +134,7 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         State::AttributeType
                     },
                     b':' => {
-                        self.emit(TokenKind::AttributeType);
+                        self.emit(TokenKind::AttributeType)?;
                         State::ValueColon
                     },
                     _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character in attribute type name on line {}, column {}", loc.line, loc.column))),
@@ -147,8 +148,8 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                     b' ' => State::WhitespaceBefore(&State::SafeStringValue),
                     b':' => State::WhitespaceBefore(&State::Base64Value),
                     b'\n' => {
-                        self.emit(TokenKind::ValueText);
-                        self.emit(TokenKind::ValueFinish);
+                        self.emit(TokenKind::ValueText)?;
+                        self.emit(TokenKind::ValueFinish)?;
                         State::LineStart
                     },
                     b'<' => return Err(Error::new(ErrorKind::Other, format!("unexpected '<' on line {}, column {} (URL values not implemented at this time)", loc.line, loc.column))),
@@ -160,8 +161,8 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         State::SafeStringValue
                     },
                     b'\n' => {
-                        self.emit(TokenKind::ValueText);
-                        self.emit(TokenKind::ValueFinish);
+                        self.emit(TokenKind::ValueText)?;
+                        self.emit(TokenKind::ValueFinish)?;
                         State::LineStart
                     },
                     _ => return Err(Error::new(ErrorKind::Other, format!("illegal LDIF safe-string character on line {}, column {} (a work-around is to base64-encode the value)", loc.line, loc.column))),
@@ -172,8 +173,8 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
                         State::Base64Value
                     },
                     b'\n' => {
-                        self.emit(TokenKind::ValueBase64);
-                        self.emit(TokenKind::ValueFinish);
+                        self.emit(TokenKind::ValueBase64)?;
+                        self.emit(TokenKind::ValueFinish)?;
                         State::LineStart
                     },
                     _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} while expecting base64 code", loc.line, loc.column))),
@@ -197,8 +198,8 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
         }
 
         match self.state {
-            State::SafeStringValue => self.emit(TokenKind::ValueText),
-            State::Base64Value => self.emit(TokenKind::ValueBase64),
+            State::SafeStringValue => self.emit(TokenKind::ValueText)?,
+            State::Base64Value => self.emit(TokenKind::ValueBase64)?,
             _ => (),
         }
         Ok(buf.len())
@@ -207,18 +208,18 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
     /// This method is used to indicate end-of-file.
     fn loc_flush(&mut self, loc: Loc) -> Result<()> {
         match self.state {
-            State::LineStart => self.emit(TokenKind::EmptyLine),
-            State::CommentLine => self.emit(TokenKind::EmptyLine),
+            State::LineStart => self.emit(TokenKind::EmptyLine)?,
+            State::CommentLine => self.emit(TokenKind::EmptyLine)?,
             State::AttributeType => return Err(Error::new(ErrorKind::Other, format!("unexpected end of file on on line {}, column {} inside attribute type", loc.line, loc.column))),
             State::ValueColon | State::SafeStringValue | State::WhitespaceBefore(_) => {
-                self.emit(TokenKind::ValueText);
-                self.emit(TokenKind::ValueFinish);
-                self.emit(TokenKind::EmptyLine);
+                self.emit(TokenKind::ValueText)?;
+                self.emit(TokenKind::ValueFinish)?;
+                self.emit(TokenKind::EmptyLine)?;
             },
             State::Base64Value => {
-                self.emit(TokenKind::ValueBase64);
-                self.emit(TokenKind::ValueFinish);
-                self.emit(TokenKind::EmptyLine);
+                self.emit(TokenKind::ValueBase64)?;
+                self.emit(TokenKind::ValueFinish)?;
+                self.emit(TokenKind::EmptyLine)?;
             },
         }
         Ok(())
@@ -229,9 +230,10 @@ impl<R: ReceiveToken> LocWrite for Lexer<R> {
 mod tests {
     use super::*;
 
-    impl ReceiveToken for Vec<(TokenKind, String)> {
-        fn receive_token(&mut self, token: Token) {
+    impl WriteToken for Vec<(TokenKind, String)> {
+        fn write_token(&mut self, token: Token) -> Result<()> {
             self.push((token.kind, token.segment.to_owned()));
+            Ok(())
         }
     }
 

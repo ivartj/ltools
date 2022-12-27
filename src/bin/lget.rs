@@ -2,7 +2,7 @@ use clap::{arg, command, Arg};
 use ltools::base64::{DecodeState, DecodeWriter};
 use ltools::cartesian::cartesian_product;
 use ltools::crstrip::CrStripper;
-use ltools::lexer::{Lexer, ReceiveToken, Token, TokenKind};
+use ltools::lexer::{Lexer, WriteToken, Token, TokenKind};
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
 use std::io::{copy, stdin, stdout, Write};
@@ -40,8 +40,8 @@ impl<W: Write> TokenReceiver<W> {
     }
 }
 
-impl<W: Write> ReceiveToken for TokenReceiver<W> {
-    fn receive_token(&mut self, token: Token) {
+impl<W: Write> WriteToken for TokenReceiver<W> {
+    fn write_token(&mut self, token: Token) -> std::io::Result<()> {
         match token.kind {
             TokenKind::AttributeType => {
                 self.ismatch =
@@ -49,14 +49,14 @@ impl<W: Write> ReceiveToken for TokenReceiver<W> {
             }
             TokenKind::ValueText => {
                 if self.ismatch {
-                    self.dest.write_all(token.segment.as_bytes()).unwrap(); // todo
+                    self.dest.write_all(token.segment.as_bytes())?;
                     self.valuetype = ValueType::Text;
                 }
             }
             TokenKind::ValueBase64 => {
                 if self.ismatch {
                     let mut decoder = DecodeWriter::new_with_state(&mut self.dest, self.b64state);
-                    decoder.write_all(token.segment.as_bytes()).unwrap(); // todo
+                    decoder.write_all(token.segment.as_bytes())?;
                     self.b64state = decoder.get_state();
                     self.valuetype = ValueType::Base64;
                 }
@@ -67,13 +67,14 @@ impl<W: Write> ReceiveToken for TokenReceiver<W> {
                         // TODO: consider raising an error if it isn't in a valid end state
                         self.b64state = DecodeState::default();
                     }
-                    self.dest.write_all(&[self.delimiter]).unwrap(); // todo
-                    self.dest.flush().unwrap();
+                    self.dest.write_all(&[self.delimiter])?;
+                    self.dest.flush()?;
                 }
                 self.ismatch = true;
             }
             TokenKind::EmptyLine => {}
         }
+        Ok(())
     }
 }
 
@@ -102,8 +103,8 @@ impl<W: Write> TsvTokenReceiver<W> {
     }
 }
 
-impl<W: Write> ReceiveToken for TsvTokenReceiver<W> {
-    fn receive_token(&mut self, token: Token) {
+impl<W: Write> WriteToken for TsvTokenReceiver<W> {
+    fn write_token(&mut self, token: Token) -> std::io::Result<()> {
         match token.kind {
             TokenKind::AttributeType => {
                 let attrlowercase = token.segment.to_ascii_lowercase();
@@ -114,7 +115,7 @@ impl<W: Write> ReceiveToken for TsvTokenReceiver<W> {
             }
             TokenKind::ValueText => {
                 if self.attrmatch.is_some() {
-                    self.valuebuf.write_all(token.segment.as_bytes()).unwrap(); // todo
+                    self.valuebuf.write_all(token.segment.as_bytes())?;
                     self.valuetype = ValueType::Text;
                 }
             }
@@ -122,7 +123,7 @@ impl<W: Write> ReceiveToken for TsvTokenReceiver<W> {
                 if self.attrmatch.is_some() {
                     let mut decoder =
                         DecodeWriter::new_with_state(&mut self.valuebuf, self.b64state);
-                    decoder.write_all(token.segment.as_bytes()).unwrap(); // todo
+                    decoder.write_all(token.segment.as_bytes())?;
                     self.b64state = decoder.get_state();
                     self.valuetype = ValueType::Base64;
                 }
@@ -141,17 +142,18 @@ impl<W: Write> ReceiveToken for TsvTokenReceiver<W> {
                 for record in cartesian_product(&self.entryvalues) {
                     for (i, value) in record.iter().enumerate() {
                         if i != 0 {
-                            self.dest.write_all(b"\t").unwrap(); // todo
+                            self.dest.write_all(b"\t")?;
                         }
-                        self.dest.write_all(value).unwrap(); // todo
+                        self.dest.write_all(value)?;
                     }
-                    self.dest.write_all(b"\n").unwrap(); // todo
+                    self.dest.write_all(b"\n")?;
                 }
                 for v in self.entryvalues.iter_mut() {
                     v.clear();
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -182,7 +184,7 @@ fn parse_arguments() -> Result<(Vec<String>, u8), &'static str> {
     }
 }
 
-fn receive_tokens<TR: ReceiveToken>(tr: TR) -> std::io::Result<()> {
+fn write_tokens<TR: WriteToken>(tr: TR) -> std::io::Result<()> {
     let lexer = Lexer::new(tr);
     let unfolder = Unfolder::new(lexer);
     let crstripper = CrStripper::new(unfolder);
@@ -198,10 +200,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let result = if attributes.len() == 1 {
             let mut token_receiver = TokenReceiver::new(attributes[0].clone(), stdout());
             token_receiver.set_delimiter(delimiter);
-            receive_tokens(token_receiver)
+            write_tokens(token_receiver)
         } else {
             let token_receiver = TsvTokenReceiver::new(attributes, stdout());
-            receive_tokens(token_receiver)
+            write_tokens(token_receiver)
         };
         if let Err(err) = result {
             eprintln!("{}", err);
