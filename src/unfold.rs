@@ -28,29 +28,48 @@ impl<LW: LocWrite> Unfolder<LW> {
 
 impl<LW: LocWrite> LocWrite for Unfolder<LW> {
     fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize> {
-        let mut skipper = Skipper::<&mut LW>::new_with_state(&mut self.inner, loc, buf, self.skipstate);
-        loop {
-            let c = match skipper.lookahead() {
-                None => break,
-                Some(c) => c,
-            };
+        let mut skipper = Skipper::new_with_state(&mut self.inner, loc, buf, self.skipstate);
+        while let Some(c) = skipper.lookahead() {
             self.state = match self.state {
                 State::LineStart => match c {
-                    b'\n' => { skipper.shift()?; State::LineStart },
-                    _ => { skipper.shift()?; State::Text },
+                    b'\n' => {
+                        skipper.shift()?;
+                        State::LineStart
+                    },
+                    _ => {
+                        skipper.shift()?;
+                        State::Text
+                    },
                 },
                 State::Text => match c {
-                    b'\n' => { skipper.begin_skip()?; skipper.shift()?; State::NewlineAfterText },
-                    _ => { skipper.shift()?; State::Text },
+                    b'\n' => {
+                        skipper.begin_skip()?;
+                        skipper.shift()?;
+                        State::NewlineAfterText
+                    },
+                    _ => {
+                        skipper.shift()?;
+                        State::Text
+                    },
                 },
                 State::NewlineAfterText => {
-                    if c == b' ' {
-                        skipper.shift()?;
-                        skipper.end_skip()?;
-                    } else {
-                        skipper.cancel_skip()?;
+                    match c {
+                        b' ' => {
+                            skipper.shift()?;
+                            skipper.end_skip()?;
+                            State::Text
+                        },
+                        b'\n' => {
+                            skipper.cancel_skip()?;
+                            skipper.shift()?;
+                            State::LineStart
+                        },
+                        _ => {
+                            skipper.cancel_skip()?;
+                            skipper.shift()?;
+                            State::Text
+                        }
                     }
-                    State::Text
                 },
             };
         }
@@ -68,7 +87,10 @@ impl<LW: LocWrite> LocWrite for Unfolder<LW> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::loc::LocWriteWrapper;
+    use crate::loc::{ LocWriteWrapper, WriteLocWrapper };
+    use crate::loc::test::LocWrites;
+    use std::io::{ Write, BufWriter };
+
 
     #[test]
     pub fn test_a() -> Result<()> {
@@ -150,15 +172,26 @@ mod test {
         Ok(())
     }
 
-    use crate::loc::test::LocWrites;
-
     #[test]
-    pub fn test_loc_a() -> Result<()> {
+    pub fn test_loc() -> Result<()> {
         let mut writes = LocWrites::new();
         let mut unfolder = Unfolder::new(&mut writes);
         unfolder.loc_write(Loc::default(), b"a\n b")?;
         assert_eq!(writes[0], ( Loc{ line: 1, column: 1, offset: 0 }, String::from("a")));
         assert_eq!(writes[1], ( Loc{ line: 2, column: 2, offset: 3 }, String::from("b")));
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_flush() -> Result<()> {
+        let mut buf = Vec::new();
+        let mut bufwriter = BufWriter::with_capacity(256, &mut buf);
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut bufwriter));
+        let mut writer = WriteLocWrapper::new(&mut unfolder);
+        writer.write(b"foo\n")?;
+        writer.flush()?;
+        (_, _) = bufwriter.into_parts(); // drop but dont flush
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foo\n");
         Ok(())
     }
 }
