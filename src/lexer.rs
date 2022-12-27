@@ -30,7 +30,7 @@ pub struct Token<'a> {
 }
 
 pub trait WriteToken {
-    fn write_token<'a>(&mut self, token: Token<'a>) -> Result<()>;
+    fn write_token(&mut self, token: Token) -> Result<()>;
 }
 
 pub struct Lexer<R> {
