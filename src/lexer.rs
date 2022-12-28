@@ -230,17 +230,34 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
 mod tests {
     use super::*;
 
-    impl WriteToken for Vec<(TokenKind, String)> {
+    #[derive(Debug, PartialEq, Eq)]
+    struct TokenCopy {
+        kind: TokenKind,
+        loc: Loc,
+        segment: String,
+    }
+
+    impl TokenCopy {
+        fn type_and_segment(self) -> (TokenKind, String) {
+            (self.kind, self.segment)
+        }
+    }
+
+    impl WriteToken for &mut Vec<TokenCopy> {
         fn write_token(&mut self, token: Token) -> Result<()> {
-            self.push((token.kind, token.segment.to_owned()));
+            self.push(TokenCopy{
+                kind: token.kind,
+                loc: token.loc,
+                segment: token.segment.to_owned(),
+            });
             Ok(())
         }
     }
 
     #[test]
     fn it_works() {
-        let vec = Vec::new();
-        let mut lexer = Lexer::new(vec);
+        let mut vec = Vec::new();
+        let mut lexer = Lexer::new(&mut vec);
         lexer.loc_write(Loc::default(),
                     b"\
                     # comment 1\n\
@@ -253,26 +270,25 @@ mod tests {
                     \n\
                     dn: cn=uaadmin,ou=sa,o=data\n\
                     ").expect("success");
-        let mut iter = lexer.get_ref().iter();
-        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("dn"))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueText, String::from("cn=admin,ou=sa,o=system"))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
+        let tuples: Vec<(TokenKind, String)> = vec.into_iter().map(TokenCopy::type_and_segment).collect();
+        assert_eq!(tuples[0], (TokenKind::AttributeType, String::from("dn")));
+        assert_eq!(tuples[1], (TokenKind::ValueText, String::from("cn=admin,ou=sa,o=system")));
+        assert_eq!(tuples[2], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("cn"))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueText, String::from("admin"))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
+        assert_eq!(tuples[3], (TokenKind::AttributeType, String::from("cn")));
+        assert_eq!(tuples[4], (TokenKind::ValueText, String::from("admin")));
+        assert_eq!(tuples[5], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("sn"))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueBase64, String::from("MO4Z2VzdMO4bA=="))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
+        assert_eq!(tuples[6], (TokenKind::AttributeType, String::from("sn")));
+        assert_eq!(tuples[7], (TokenKind::ValueBase64, String::from("MO4Z2VzdMO4bA==")));
+        assert_eq!(tuples[8], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(iter.next(), Some(&(TokenKind::EmptyLine, String::from(""))));
+        assert_eq!(tuples[9], (TokenKind::EmptyLine, String::from("")));
 
-        assert_eq!(iter.next(), Some(&(TokenKind::AttributeType, String::from("dn"))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data"))));
-        assert_eq!(iter.next(), Some(&(TokenKind::ValueFinish, String::from(""))));
-
-        assert_eq!(iter.next(), None);
+        assert_eq!(tuples[10], (TokenKind::AttributeType, String::from("dn")));
+        assert_eq!(tuples[11], (TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data")));
+        assert_eq!(tuples[12], (TokenKind::ValueFinish, String::from("")));
+        assert_eq!(tuples.len(), 13);
     }
 }
 
