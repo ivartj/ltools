@@ -2,7 +2,7 @@ use std::io::Result;
 use crate::loc::{ Loc, LocWrite };
 use crate::skip::{ Skipper, SkipState };
 
-#[derive(PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum State {
     Normal,
     Cr,
@@ -22,46 +22,43 @@ impl<LW: LocWrite> CrStripper<LW> {
 
 impl<LW: LocWrite> LocWrite for CrStripper<LW> {
     fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize> {
-        let mut skipper = Skipper::<& mut LW>::new_with_state(&mut self.inner, loc, buf, self.skipstate);
-        loop {
-            let c = match skipper.lookahead() {
-                None => break,
-                Some(c) => c,
-            };
-            self.state = match self.state {
-                State::Normal => match c {
-                    b'\r' => {
-                        skipper.begin_skip()?;
-                        skipper.shift()?;
-                        State::Cr
-                    },
-                    _ => {
-                        skipper.shift()?;
-                        State::Normal
-                    },
+        let mut skipper = Skipper::new_with_state(&mut self.inner, loc, buf, self.skipstate);
+        while let Some(c) = skipper.lookahead() {
+            self.state = match (self.state, c) {
+                (State::Normal, b'\r') => {
+                    skipper.begin_skip()?;
+                    skipper.shift()?;
+                    State::Cr
                 },
-                State::Cr => {
-                    if c == b'\n' {
-                        skipper.end_skip()?;
-                        skipper.shift()?;
-                        State::Normal
-                    } else {
-                        skipper.cancel_skip()?;
-                        State::Normal
-                    }
+                (State::Normal, _) => {
+                    skipper.shift()?;
+                    State::Normal
+                },
+                (State::Cr, b'\r') => {
+                    skipper.cancel_skip()?;
+                    skipper.begin_skip()?;
+                    skipper.shift()?;
+                    State::Cr
+                },
+                (State::Cr, b'\n') => {
+                    skipper.end_skip()?;
+                    skipper.shift()?;
+                    State::Normal
+                },
+                (State::Cr, _) => {
+                    skipper.cancel_skip()?;
+                    skipper.shift()?;
+                    State::Normal
                 },
             };
         }
-
         self.skipstate = skipper.save_state();
-
         Ok(buf.len())
     }
 
     fn loc_flush(&mut self, loc: Loc) -> Result<()> {
         self.skipstate.write_remainder(&mut self.inner)?;
-        self.inner.loc_flush(loc)?;
-        Ok(())
+        self.inner.loc_flush(loc)
     }
 }
 
