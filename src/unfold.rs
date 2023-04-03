@@ -2,11 +2,10 @@ use std::io::Result;
 use crate::loc::{ Loc, LocWrite };
 use crate::skip::{ Skipper, SkipState };
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 enum State {
-    LineStart,
     Text,
-    NewlineAfterText,
+    Newline,
 }
 
 pub struct Unfolder<LW: LocWrite> {
@@ -19,7 +18,7 @@ impl<LW: LocWrite> Unfolder<LW> {
     pub fn new(inner: LW) -> Unfolder<LW> {
         Unfolder{
             inner,
-            state: State::LineStart,
+            state: State::Text,
             skipstate: SkipState::default(),
         }
     }
@@ -30,57 +29,40 @@ impl<LW: LocWrite> LocWrite for Unfolder<LW> {
     fn loc_write(&mut self, loc: Loc, buf: &[u8]) -> Result<usize> {
         let mut skipper = Skipper::new_with_state(&mut self.inner, loc, buf, self.skipstate);
         while let Some(c) = skipper.lookahead() {
-            self.state = match self.state {
-                State::LineStart => match c {
-                    b'\n' => {
-                        skipper.shift()?;
-                        State::LineStart
-                    },
-                    _ => {
-                        skipper.shift()?;
-                        State::Text
-                    },
+            self.state = match (self.state, c) {
+                (State::Text, b'\n') => {
+                    skipper.begin_skip()?;
+                    skipper.shift()?;
+                    State::Newline
                 },
-                State::Text => match c {
-                    b'\n' => {
-                        skipper.begin_skip()?;
-                        skipper.shift()?;
-                        State::NewlineAfterText
-                    },
-                    _ => {
-                        skipper.shift()?;
-                        State::Text
-                    },
+                (State::Text, _) => {
+                    skipper.shift()?;
+                    State::Text
                 },
-                State::NewlineAfterText => {
-                    match c {
-                        b' ' => {
-                            skipper.shift()?;
-                            skipper.end_skip()?;
-                            State::Text
-                        },
-                        b'\n' => {
-                            skipper.cancel_skip()?;
-                            skipper.shift()?;
-                            State::LineStart
-                        },
-                        _ => {
-                            skipper.cancel_skip()?;
-                            skipper.shift()?;
-                            State::Text
-                        }
-                    }
+                (State::Newline, b' ') => {
+                    skipper.shift()?;
+                    skipper.end_skip()?;
+                    State::Text
                 },
-            };
+                (State::Newline, b'\n') => {
+                    skipper.cancel_skip()?;
+                    skipper.shift()?;
+                    State::Newline
+                }
+                (State::Newline, _) => {
+                    skipper.cancel_skip()?;
+                    skipper.shift()?;
+                    State::Text
+                }
+            }
         }
         self.skipstate = skipper.save_state();
-        Ok(buf.len())
+        return Ok(buf.len())
     }
 
     fn loc_flush(&mut self, loc: Loc) -> Result<()> {
         self.skipstate.write_remainder(&mut self.inner)?;
-        self.inner.loc_flush(loc)?;
-        Ok(())
+        self.inner.loc_flush(loc)
     }
 }
 
@@ -169,6 +151,16 @@ mod test {
         unfolder.loc_write(Loc::default(), b"")?;
         unfolder.loc_write(Loc::default(), b" b")?;
         assert_eq!(String::from_utf8_lossy(&buf[..]), "ab");
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_i() -> Result<()> {
+        // It probably does not have a big significance if it works in this way
+        let mut buf = Vec::new();
+        let mut unfolder = Unfolder::new(LocWriteWrapper::new(&mut buf));
+        unfolder.loc_write(Loc::default(), b"\n foo")?;
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "foo");
         Ok(())
     }
 
