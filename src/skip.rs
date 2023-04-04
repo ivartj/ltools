@@ -110,7 +110,7 @@ impl<'a, LW: LocWrite> Skipper<'a, LW> {
 
     pub fn begin_skip(&mut self) -> Result<()> {
         if self.state != SkipState::Writing {
-            return Err(Error::new(ErrorKind::Other, "call to .begin_skip() in state {:?}"));
+            return Err(Error::new(ErrorKind::Other, format!("call to .begin_skip() in state {:?}", self.state)));
         }
         self.state = SkipState::SkippingFrom(self.loc, self.pos);
         Ok(())
@@ -249,6 +249,17 @@ mod test {
         assert_eq!(writes[1].0, Loc{ offset: 1, line: 1, column: 2});
         assert_eq!(writes[2].1, "cd");
         assert_eq!(writes[2].0, Loc{ offset: 2, line: 1, column: 3});
+        Ok(())
+    }
+
+    #[test]
+    fn test_e() -> Result<()> {
+        let mut writes = LocWrites::new();
+        let mut skipper = Skipper::new(&mut writes, Loc::default(), b"ab");
+        skipper.begin_skip()?;
+        let result = skipper.begin_skip();
+        assert!(result.is_err());
+        eprintln!("{}", result.unwrap_err());
         Ok(())
     }
 }
