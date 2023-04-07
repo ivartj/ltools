@@ -1,12 +1,12 @@
 pub struct CartesianProduct<'a, E> {
-    empty: bool,
+    emptied: bool,
     vec: &'a Vec<Vec<E>>,
     counters: Vec<usize>,
 }
 
 pub fn cartesian_product<E>(vec: &Vec<Vec<E>>) -> CartesianProduct<'_, E> {
     CartesianProduct{
-        empty: vec.iter().any(Vec::is_empty),
+        emptied: vec.is_empty() || vec.iter().any(Vec::is_empty),
         vec,
         counters: vec![0; vec.len()],
     }
@@ -16,32 +16,28 @@ impl<'a, E> Iterator for CartesianProduct<'a, E> {
     type Item = Vec<&'a E>;
 
     fn next(&mut self) -> Option<Vec<&'a E>> {
-        if self.empty {
+        if self.emptied {
             return None;
         }
-
-        let retval = self.counters.iter()
+        let v = self.counters.iter()
             .copied()
             .enumerate()
-            .map(|(i, counter)| &self.vec[i][counter])
+            .map(|(idx, counter)| &self.vec[idx][counter])
             .collect();
 
         // increment counters
         for (i, counter) in self.counters.iter_mut().enumerate().rev() {
             *counter += 1;
-            if *counter == self.vec[i].len() {
-                if i == 0 {
-                    self.empty = true;
-                } else {
-                    *counter = 0;
-                }
-                continue;
-            } else {
+            if *counter != self.vec[i].len() {
                 break;
+            }
+            *counter = 0;
+            if i == 0 {
+                self.emptied = true;
             }
         }
 
-        Some(retval)
+        return Some(v);
     }
 }
 
@@ -80,6 +76,12 @@ mod test {
                 vec![2,3,6],
                 vec![2,4,5],
                 vec![2,4,6]]);
+    }
+
+    #[test]
+    fn test_d() {
+        let v: Vec<Vec<i32>> = Vec::new();
+        assert_eq!(cartesian_product(&v).next(), None);
     }
 }
 
