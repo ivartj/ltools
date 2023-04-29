@@ -21,6 +21,7 @@ pub struct TsvTokenReceiver<W: Write> {
     dest: W,
     valuetype: ValueType,
     b64state: DecodeState,
+    record_separator: u8,
 }
 
 impl<W: Write> TsvTokenReceiver<W> {
@@ -34,7 +35,13 @@ impl<W: Write> TsvTokenReceiver<W> {
             dest,
             valuetype: ValueType::Text,
             b64state: DecodeState::default(),
+            record_separator: b'\n',
         }
+    }
+
+    pub fn set_record_separator(&mut self, record_separator: u8) -> &mut Self {
+        self.record_separator = record_separator;
+        self
     }
 }
 
@@ -81,7 +88,7 @@ impl<W: Write> WriteToken for TsvTokenReceiver<W> {
                         }
                         self.dest.write_all(value)?;
                     }
-                    self.dest.write_all(b"\n")?;
+                    self.dest.write_all(&[self.record_separator])?;
                 }
                 for v in self.entryvalues.iter_mut() {
                     v.clear();

@@ -123,7 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             token_receiver.set_delimiter(delimiter);
             write_tokens(token_receiver)
         } else {
-            let token_receiver = TsvTokenReceiver::new(attributes, stdout());
+            let mut token_receiver = TsvTokenReceiver::new(attributes, stdout());
+            token_receiver.set_record_separator(delimiter);
             write_tokens(token_receiver)
         };
         if let Err(err) = result {
