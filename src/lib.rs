@@ -7,3 +7,5 @@ pub mod loc;
 pub mod skip;
 pub mod cartesian;
 pub mod tsv;
+pub mod attrspec;
+pub mod entry;

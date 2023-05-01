@@ -4,7 +4,7 @@ pub struct CartesianProduct<'a, E> {
     counters: Vec<usize>,
 }
 
-pub fn cartesian_product<E>(vec: &Vec<Vec<E>>) -> CartesianProduct<'_, E> {
+pub fn cartesian_product<E>(vec: &Vec<Vec<E>>) -> CartesianProduct<E> {
     CartesianProduct{
         emptied: vec.is_empty() || vec.iter().any(Vec::is_empty),
         vec,
@@ -37,7 +37,7 @@ impl<'a, E> Iterator for CartesianProduct<'a, E> {
             }
         }
 
-        return Some(v);
+        Some(v)
     }
 }
 
@@ -47,7 +47,9 @@ mod test {
 
     #[test]
     fn test_a() {
-        let v = vec![vec![1,2,3], vec![4,5]];
+        let v0 = vec![1,2,3];
+        let v1 = vec![4,5];
+        let v = vec![v0, v1];
         assert_eq!(
             cartesian_product(&v).map(|v| v.into_iter().copied().collect()).collect::<Vec<Vec<i32>>>(),
             vec![
@@ -58,13 +60,19 @@ mod test {
 
     #[test]
     fn test_b() {
-        let v = vec![vec![1], vec![], vec![2]];
+        let v0 = vec![1];
+        let v1 = vec![];
+        let v2 = vec![2];
+        let v = vec![v0, v1, v2];
         assert_eq!(cartesian_product(&v).next(), None);
     }
 
     #[test]
     fn test_c() {
-        let v = vec![vec![1,2], vec![3,4], vec![5,6]];
+        let v0 = vec![1,2];
+        let v1 = vec![3,4];
+        let v2 = vec![5,6];
+        let v = vec![v0, v1, v2];
         assert_eq!(
             cartesian_product(&v).map(|v| v.into_iter().copied().collect()).collect::<Vec<Vec<i32>>>(),
             vec![

@@ -4,7 +4,8 @@ use ltools::crstrip::CrStripper;
 use ltools::lexer::{Lexer, WriteToken, Token, TokenKind};
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
-use ltools::tsv::TsvTokenReceiver;
+use ltools::tsv::{ TsvHashMapWriter, HashMapTokenWriter };
+use ltools::attrspec::AttrSpec;
 use std::io::{copy, stdin, stdout, Write};
 
 #[derive(PartialEq)]
@@ -23,9 +24,9 @@ struct TokenReceiver<W: Write> {
 }
 
 impl<W: Write> TokenReceiver<W> {
-    fn new(attrtype: String, dest: W) -> TokenReceiver<W> {
+    fn new(attrtype: &str, dest: W) -> TokenReceiver<W> {
         TokenReceiver {
-            attrtype,
+            attrtype: attrtype.to_ascii_lowercase(),
             ismatch: true, // true until non-matching char is seen
             dest,
             valuetype: ValueType::Text,
@@ -117,15 +118,23 @@ fn write_tokens<TR: WriteToken>(tr: TR) -> std::io::Result<()> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exit_code = {
-        let (attributes, delimiter) = parse_arguments()?;
-        let result = if attributes.len() == 1 {
-            let mut token_receiver = TokenReceiver::new(attributes[0].clone(), stdout());
+        let (attrspec_strings, delimiter) = parse_arguments()?;
+        let mut attrspecs: Vec<AttrSpec> = Vec::new();
+        for spec in attrspec_strings.iter() {
+            attrspecs.push(AttrSpec::parse(spec)?);
+        }
+        let result = if attrspecs.len() == 1 {
+            let mut token_receiver = TokenReceiver::new(&attrspecs[0].attribute /* TODO */, stdout());
             token_receiver.set_delimiter(delimiter);
             write_tokens(token_receiver)
         } else {
-            let mut token_receiver = TsvTokenReceiver::new(attributes, stdout());
-            token_receiver.set_record_separator(delimiter);
-            write_tokens(token_receiver)
+            let attributes = attrspecs.iter()
+                .map(|spec| spec.attribute.clone())
+                .collect();
+            let mut hash_map_writer = TsvHashMapWriter::new(attrspecs, stdout());
+            hash_map_writer.set_record_separator(delimiter);
+            let token_writer = HashMapTokenWriter::new(attributes, &mut hash_map_writer);
+            write_tokens(token_writer)
         };
         if let Err(err) = result {
             eprintln!("{}", err);

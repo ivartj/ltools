@@ -1,4 +1,9 @@
-use std::io::Write;
+use std::io::{
+    Write,
+    Result,
+};
+use std::collections::HashMap;
+use std::borrow::Cow;
 use crate::cartesian::cartesian_product;
 use crate::base64::{DecodeWriter, DecodeState};
 use crate::lexer::{
@@ -6,6 +11,8 @@ use crate::lexer::{
     TokenKind,
     WriteToken,
 };
+use crate::attrspec::AttrSpec;
+use crate::entry::{Entry, EntryValue};
 
 #[derive(PartialEq)]
 enum ValueType {
@@ -13,9 +20,19 @@ enum ValueType {
     Base64,
 }
 
-pub struct TsvTokenReceiver<W: Write> {
-    attributes: Vec<String>,
-    entryvalues: Vec<Vec<Vec<u8>>>,
+pub trait WriteEntry {
+    fn write_entry(&mut self, attr2values: &Entry) -> Result<()>;
+}
+
+impl<W: WriteEntry> WriteEntry for &mut W {
+    fn write_entry(&mut self, attr2values: &Entry) -> Result<()> {
+        (*self).write_entry(attr2values)
+    }
+}
+
+pub struct HashMapTokenWriter<'a, W: WriteEntry> {
+    attr2index: HashMap<String, usize>,
+    attrvalues: Vec<Vec<EntryValue<'a>>>,
     attrmatch: Option<usize>, // index of currently matched attribute
     valuebuf: Vec<u8>,
     dest: W,
@@ -24,12 +41,19 @@ pub struct TsvTokenReceiver<W: Write> {
     record_separator: u8,
 }
 
-impl<W: Write> TsvTokenReceiver<W> {
-    pub fn new(attributes: Vec<String>, dest: W) -> TsvTokenReceiver<W> {
-        let entryvalues = attributes.iter().map(|_| Vec::new()).collect();
-        TsvTokenReceiver {
-            attributes,
-            entryvalues,
+impl<'a, W: WriteEntry> HashMapTokenWriter<'a, W> {
+    pub fn new(attributes: Vec<String>, dest: W) -> HashMapTokenWriter<'a, W> {
+        let attrvalues = attributes.iter()
+            .map(|_| Vec::new())
+            .collect();
+        let attr2index = attributes.into_iter()
+            .map(|attr| attr.to_ascii_lowercase())
+            .enumerate()
+            .map(|(v, k)| (k, v))
+            .collect();
+        HashMapTokenWriter {
+            attr2index,
+            attrvalues,
             attrmatch: None,
             valuebuf: Vec::new(),
             dest,
@@ -45,15 +69,12 @@ impl<W: Write> TsvTokenReceiver<W> {
     }
 }
 
-impl<W: Write> WriteToken for TsvTokenReceiver<W> {
-    fn write_token(&mut self, token: Token) -> std::io::Result<()> {
+impl<'a, W: WriteEntry> WriteToken for HashMapTokenWriter<'a, W> {
+    fn write_token(&mut self, token: Token) -> Result<()> {
         match token.kind {
             TokenKind::AttributeType => {
                 let attrlowercase = token.segment.to_ascii_lowercase();
-                self.attrmatch = self
-                    .attributes
-                    .iter()
-                    .position(|attr| attr.to_ascii_lowercase() == attrlowercase);
+                self.attrmatch = self.attr2index.get(&attrlowercase).copied();
             }
             TokenKind::ValueText => {
                 if self.attrmatch.is_some() {
@@ -76,21 +97,16 @@ impl<W: Write> WriteToken for TsvTokenReceiver<W> {
                         // TODO: consider raising an error if it isn't in a valid end state
                         self.b64state = DecodeState::default();
                     }
-                    self.entryvalues[attridx].push(self.valuebuf.clone());
+                    self.attrvalues[attridx].push(Cow::Owned(self.valuebuf.clone()));
                     self.valuebuf.clear();
                 }
             }
             TokenKind::EmptyLine => {
-                for record in cartesian_product(&self.entryvalues) {
-                    for (i, value) in record.iter().enumerate() {
-                        if i != 0 {
-                            self.dest.write_all(b"\t")?;
-                        }
-                        self.dest.write_all(value)?;
-                    }
-                    self.dest.write_all(&[self.record_separator])?;
-                }
-                for v in self.entryvalues.iter_mut() {
+                let attr2values: HashMap<String, &Vec<EntryValue>> = self.attr2index.iter()
+                    .map(|(attr, index)| (attr.to_owned(), &self.attrvalues[*index]))
+                    .collect();
+                self.dest.write_entry(&attr2values)?;
+                for v in self.attrvalues.iter_mut() {
                     v.clear();
                 }
             }
@@ -98,3 +114,44 @@ impl<W: Write> WriteToken for TsvTokenReceiver<W> {
         Ok(())
     }
 }
+
+pub struct TsvHashMapWriter<'a, W: Write> {
+    attrspecs: Vec<AttrSpec<'a>>,
+    dest: W,
+    record_separator: u8,
+}
+
+impl<'a, W: Write> TsvHashMapWriter<'a, W> {
+    pub fn new(attrspecs: Vec<AttrSpec<'a>>, dest: W) -> TsvHashMapWriter<W> {
+
+        TsvHashMapWriter {
+            attrspecs,
+            dest,
+            record_separator: b'\n',
+        }
+    }
+
+    pub fn set_record_separator(&mut self, record_separator: u8) -> &mut Self {
+        self.record_separator = record_separator;
+        self
+    }
+}
+
+impl<'a, W: Write> WriteEntry for TsvHashMapWriter<'a, W> {
+    fn write_entry(&mut self, attr2values: &HashMap<String, &Vec<EntryValue>>) -> Result<()> {
+        let attrvalues: Vec<Vec<EntryValue>> = self.attrspecs.iter()
+            .map(|attrspec| attrspec.filter_values(attr2values.get(&attrspec.attribute).unwrap()).into_owned())
+            .collect();
+        for record in cartesian_product(&attrvalues) {
+            for (i, value) in record.iter().enumerate() {
+                if i != 0 {
+                    self.dest.write_all(b"\t")?;
+                }
+                self.dest.write_all(value)?;
+            }
+            self.dest.write_all(&[self.record_separator])?;
+        }
+        Ok(())
+    }
+}
+
