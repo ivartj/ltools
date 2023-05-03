@@ -1,16 +1,15 @@
 use std::borrow::Cow;
-use std::borrow::Borrow;
 use nom::Err;
 use nom::sequence::terminated;
 use nom::combinator::eof;
 use crate::entry::EntryValue;
 
-pub struct AttrSpec<'a> {
+pub struct AttrSpec {
     pub attribute: String, // in lowercase
-    pub value_filters: Vec<ValueFilter<'a>>,
+    pub value_filters: Vec<ValueFilter>,
 }
 
-impl<'a> AttrSpec<'a> {
+impl AttrSpec {
     pub fn parse(input: &str) -> std::io::Result<AttrSpec> {
         let iresult = terminated(parser::attr_spec, eof)(input)
             .map(|(_, spec)| spec);
@@ -30,21 +29,24 @@ impl<'a> AttrSpec<'a> {
         }
     }
 
-    pub fn filter_values<'b, 'c, 'd>(&'d self, values: &'b Vec<EntryValue<'c>>) -> Cow<'b, Vec<EntryValue<'c>>>
-        where 'a: 'c, 'd: 'b
+    pub fn filter_values<'a, 'b, 'c>(&'a self, values: &'b Vec<EntryValue<'c>>) -> Cow<'b, Vec<EntryValue<'c>>>
+        where 'a: 'b
     {
-        return self.value_filters.iter()
-            .fold(Cow::Borrowed(values), |values, filter| filter.filter_values(values));
+        let mut values: Cow<'b, Vec<EntryValue<'c>>> = Cow::Borrowed(values);
+        for filter in self.value_filters.iter() {
+            values = filter.filter_values(values);
+        }
+        return values;
     }
 }
 
-pub enum ValueFilter<'a> {
-    NullCoalesce(Vec<EntryValue<'a>>),
+pub enum ValueFilter {
+    NullCoalesce(Vec<EntryValue<'static>>), // static because values are never borrowed
 }
 
-impl<'a> ValueFilter<'a> {
-    pub fn filter_values<'b, 'c, 'd>(&'d self, values: Cow<'b, Vec<EntryValue<'c>>>) -> Cow<'b, Vec<EntryValue<'c>>>
-        where 'a: 'b, 'a: 'c, 'd: 'b
+impl ValueFilter {
+    pub fn filter_values<'a, 'b, 'c>(&'a self, values: Cow<'b, Vec<EntryValue<'c>>>) -> Cow<'b, Vec<EntryValue<'c>>>
+        where 'a: 'b
     {
         match self {
             ValueFilter::NullCoalesce(default_values) => {

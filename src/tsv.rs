@@ -115,14 +115,14 @@ impl<'a, W: WriteEntry> WriteToken for HashMapTokenWriter<'a, W> {
     }
 }
 
-pub struct TsvHashMapWriter<'a, W: Write> {
-    attrspecs: Vec<AttrSpec<'a>>,
+pub struct TsvHashMapWriter<W: Write> {
+    attrspecs: Vec<AttrSpec>,
     dest: W,
     record_separator: u8,
 }
 
-impl<'a, W: Write> TsvHashMapWriter<'a, W> {
-    pub fn new(attrspecs: Vec<AttrSpec<'a>>, dest: W) -> TsvHashMapWriter<W> {
+impl<W: Write> TsvHashMapWriter<W> {
+    pub fn new(attrspecs: Vec<AttrSpec>, dest: W) -> TsvHashMapWriter<W> {
 
         TsvHashMapWriter {
             attrspecs,
@@ -137,7 +137,7 @@ impl<'a, W: Write> TsvHashMapWriter<'a, W> {
     }
 }
 
-impl<'a, W: Write> WriteEntry for TsvHashMapWriter<'a, W> {
+impl<W: Write> WriteEntry for TsvHashMapWriter<W> {
     fn write_entry(&mut self, attr2values: &HashMap<String, &Vec<EntryValue>>) -> Result<()> {
         let attrvalues: Vec<Vec<EntryValue>> = self.attrspecs.iter()
             .map(|attrspec| attrspec.filter_values(attr2values.get(&attrspec.attribute).unwrap()).into_owned())
