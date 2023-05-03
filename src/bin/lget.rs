@@ -46,7 +46,7 @@ impl<W: Write> WriteToken for TokenReceiver<W> {
         match token.kind {
             TokenKind::AttributeType => {
                 self.ismatch =
-                    token.segment.to_ascii_lowercase() == self.attrtype.to_ascii_lowercase();
+                    token.segment.to_ascii_lowercase() == self.attrtype;
             }
             TokenKind::ValueText => {
                 if self.ismatch {
@@ -123,8 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for spec in attrspec_strings.iter() {
             attrspecs.push(AttrSpec::parse(spec)?);
         }
-        let result = if attrspecs.len() == 1 {
-            let mut token_receiver = TokenReceiver::new(&attrspecs[0].attribute /* TODO */, stdout());
+        let result = if attrspecs.len() == 1 && attrspecs[0].value_filters.len() == 0 {
+            let mut token_receiver = TokenReceiver::new(&attrspecs[0].attribute, stdout());
             token_receiver.set_delimiter(delimiter);
             write_tokens(token_receiver)
         } else {
