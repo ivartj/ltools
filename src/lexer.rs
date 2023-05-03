@@ -4,8 +4,8 @@ use crate::loc::{ Loc, LocWrite };
 const MAX_TYPE_LENGTH: usize = 1024;
 
 enum State {
-    LineStart,
-    CommentLine,
+    LineStart(bool), // bool indicates whether we are inside an entry
+    CommentLine(bool), // bool indicates whether we are inside an entry
     AttributeType,
     ValueColon,
     SafeStringValue,
@@ -19,7 +19,7 @@ pub enum TokenKind {
     ValueText,
     ValueBase64,
     ValueFinish,
-    EmptyLine,
+    EntryFinish,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -43,7 +43,7 @@ pub struct Lexer<R> {
 impl<R: WriteToken> Lexer<R> {
     pub fn new(token_receiver: R) -> Lexer<R> {
         Lexer{
-            state: State::LineStart,
+            state: State::LineStart(false),
             token_receiver,
             buf: Vec::with_capacity(1028),
             token_start: Loc::default(),
@@ -99,12 +99,14 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
                 return Err(Error::new(ErrorKind::Other, format!("non-ASCII character at line {}, column {}", loc.line, loc.column)));
             }
             self.state = match self.state {
-                State::LineStart => match c {
+                State::LineStart(in_entry) => match c {
                     b'\n' => {
-                        self.emit(TokenKind::EmptyLine)?;
-                        State::LineStart
+                        if in_entry {
+                            self.emit(TokenKind::EntryFinish)?;
+                        }
+                        State::LineStart(false)
                     },
-                    b'#' => State::CommentLine,
+                    b'#' => State::CommentLine(in_entry),
                     ALPHA!() => {
                         self.token_start = loc;
                         self.buf.push(c);
@@ -117,9 +119,9 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
                         return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {}", loc.line, loc.column)));
                     },
                 },
-                State::CommentLine => match c {
-                    b'\n' => State::LineStart,
-                    _ => State::CommentLine,
+                State::CommentLine(in_entry) => match c {
+                    b'\n' => State::LineStart(in_entry),
+                    _ => State::CommentLine(in_entry),
                 },
                 State::AttributeType => match c {
                     b';' => {
@@ -150,7 +152,7 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
                     b'\n' => {
                         self.emit(TokenKind::ValueText)?;
                         self.emit(TokenKind::ValueFinish)?;
-                        State::LineStart
+                        State::LineStart(true)
                     },
                     b'<' => return Err(Error::new(ErrorKind::Other, format!("unexpected '<' on line {}, column {} (URL values not implemented at this time)", loc.line, loc.column))),
                     _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} (expecting attribute value)", loc.line, loc.column))),
@@ -163,7 +165,7 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
                     b'\n' => {
                         self.emit(TokenKind::ValueText)?;
                         self.emit(TokenKind::ValueFinish)?;
-                        State::LineStart
+                        State::LineStart(true)
                     },
                     _ => return Err(Error::new(ErrorKind::Other, format!("illegal LDIF safe-string character on line {}, column {} (a work-around is to base64-encode the value)", loc.line, loc.column))),
                 },
@@ -175,7 +177,7 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
                     b'\n' => {
                         self.emit(TokenKind::ValueBase64)?;
                         self.emit(TokenKind::ValueFinish)?;
-                        State::LineStart
+                        State::LineStart(true)
                     },
                     _ => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} while expecting base64 code", loc.line, loc.column))),
                 },
@@ -208,18 +210,18 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
     /// This method is used to indicate end-of-file.
     fn loc_flush(&mut self, loc: Loc) -> Result<()> {
         match self.state {
-            State::LineStart => self.emit(TokenKind::EmptyLine)?,
-            State::CommentLine => self.emit(TokenKind::EmptyLine)?,
+            State::LineStart(in_entry) => if in_entry { self.emit(TokenKind::EntryFinish)? },
+            State::CommentLine(in_entry) => if in_entry { self.emit(TokenKind::EntryFinish)? },
             State::AttributeType => return Err(Error::new(ErrorKind::Other, format!("unexpected end of file on on line {}, column {} inside attribute type", loc.line, loc.column))),
             State::ValueColon | State::SafeStringValue | State::WhitespaceBefore(_) => {
                 self.emit(TokenKind::ValueText)?;
                 self.emit(TokenKind::ValueFinish)?;
-                self.emit(TokenKind::EmptyLine)?;
+                self.emit(TokenKind::EntryFinish)?;
             },
             State::Base64Value => {
                 self.emit(TokenKind::ValueBase64)?;
                 self.emit(TokenKind::ValueFinish)?;
-                self.emit(TokenKind::EmptyLine)?;
+                self.emit(TokenKind::EntryFinish)?;
             },
         }
         Ok(())
@@ -270,6 +272,7 @@ mod tests {
                     \n\
                     dn: cn=uaadmin,ou=sa,o=data\n\
                     ").expect("success");
+        lexer.loc_flush(Loc::default()).expect("success");
         let tuples: Vec<(TokenKind, String)> = vec.into_iter().map(TokenCopy::type_and_segment).collect();
         assert_eq!(tuples[0], (TokenKind::AttributeType, String::from("dn")));
         assert_eq!(tuples[1], (TokenKind::ValueText, String::from("cn=admin,ou=sa,o=system")));
@@ -283,12 +286,13 @@ mod tests {
         assert_eq!(tuples[7], (TokenKind::ValueBase64, String::from("MO4Z2VzdMO4bA==")));
         assert_eq!(tuples[8], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(tuples[9], (TokenKind::EmptyLine, String::from("")));
+        assert_eq!(tuples[9], (TokenKind::EntryFinish, String::from("")));
 
         assert_eq!(tuples[10], (TokenKind::AttributeType, String::from("dn")));
         assert_eq!(tuples[11], (TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data")));
         assert_eq!(tuples[12], (TokenKind::ValueFinish, String::from("")));
-        assert_eq!(tuples.len(), 13);
+        assert_eq!(tuples[13], (TokenKind::EntryFinish, String::from("")));
+        assert_eq!(tuples.len(), 14);
     }
 }
 

@@ -73,7 +73,7 @@ impl<W: Write> WriteToken for TokenReceiver<W> {
                 }
                 self.ismatch = true;
             }
-            TokenKind::EmptyLine => {}
+            TokenKind::EntryFinish => {}
         }
         Ok(())
     }

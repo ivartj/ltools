@@ -101,7 +101,7 @@ impl<'a, W: WriteEntry> WriteToken for HashMapTokenWriter<'a, W> {
                     self.valuebuf.clear();
                 }
             }
-            TokenKind::EmptyLine => {
+            TokenKind::EntryFinish => {
                 let attr2values: HashMap<String, &Vec<EntryValue>> = self.attr2index.iter()
                     .map(|(attr, index)| (attr.to_owned(), &self.attrvalues[*index]))
                     .collect();
