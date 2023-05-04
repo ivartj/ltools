@@ -4,7 +4,8 @@ use ltools::crstrip::CrStripper;
 use ltools::lexer::{Lexer, WriteToken, Token, TokenKind};
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
-use ltools::tsv::{ TsvHashMapWriter, HashMapTokenWriter };
+use ltools::tsv::TsvEntryWriter;
+use ltools::entry::EntryTokenWriter;
 use ltools::attrspec::AttrSpec;
 use std::io::{copy, stdin, stdout, Write};
 
@@ -14,7 +15,7 @@ enum ValueType {
     Base64,
 }
 
-struct TokenReceiver<W: Write> {
+struct OctetStreamTokenWriter<W: Write> {
     attrtype: String,
     ismatch: bool,
     dest: W,
@@ -23,9 +24,9 @@ struct TokenReceiver<W: Write> {
     delimiter: u8,
 }
 
-impl<W: Write> TokenReceiver<W> {
-    fn new(attrtype: &str, dest: W) -> TokenReceiver<W> {
-        TokenReceiver {
+impl<W: Write> OctetStreamTokenWriter<W> {
+    fn new(attrtype: &str, dest: W) -> OctetStreamTokenWriter<W> {
+        OctetStreamTokenWriter {
             attrtype: attrtype.to_ascii_lowercase(),
             ismatch: true, // true until non-matching char is seen
             dest,
@@ -41,7 +42,7 @@ impl<W: Write> TokenReceiver<W> {
     }
 }
 
-impl<W: Write> WriteToken for TokenReceiver<W> {
+impl<W: Write> WriteToken for OctetStreamTokenWriter<W> {
     fn write_token(&mut self, token: Token) -> std::io::Result<()> {
         match token.kind {
             TokenKind::AttributeType => {
@@ -124,16 +125,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             attrspecs.push(AttrSpec::parse(spec)?);
         }
         let result = if attrspecs.len() == 1 && attrspecs[0].value_filters.len() == 0 {
-            let mut token_receiver = TokenReceiver::new(&attrspecs[0].attribute, stdout());
+            let mut token_receiver = OctetStreamTokenWriter::new(&attrspecs[0].attribute, stdout());
             token_receiver.set_delimiter(delimiter);
             write_tokens(token_receiver)
         } else {
             let attributes = attrspecs.iter()
                 .map(|spec| spec.attribute.clone())
                 .collect();
-            let mut hash_map_writer = TsvHashMapWriter::new(attrspecs, stdout());
+            let mut hash_map_writer = TsvEntryWriter::new(attrspecs, stdout());
             hash_map_writer.set_record_separator(delimiter);
-            let token_writer = HashMapTokenWriter::new(attributes, &mut hash_map_writer);
+            let token_writer = EntryTokenWriter::new(attributes, &mut hash_map_writer);
             write_tokens(token_writer)
         };
         if let Err(err) = result {
