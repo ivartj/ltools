@@ -5,6 +5,7 @@ use ltools::lexer::{Lexer, WriteToken, Token, TokenKind};
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
 use ltools::tsv::TsvEntryWriter;
+use ltools::json::JsonEntryWriter;
 use ltools::entry::EntryTokenWriter;
 use ltools::attrspec::AttrSpec;
 use std::io::{copy, stdin, stdout, Write};
@@ -80,8 +81,15 @@ impl<W: Write> WriteToken for OctetStreamTokenWriter<W> {
     }
 }
 
-fn parse_arguments() -> Result<(Vec<String>, u8), &'static str> {
+#[derive(PartialEq, Eq)]
+enum OutputFormat {
+    Tsv,
+    Json,
+}
+
+fn parse_arguments() -> Result<(Vec<String>, u8, OutputFormat), &'static str> {
     let mut delimiter = b'\n';
+    let mut output_format = OutputFormat::Tsv;
 
     let matches = command!("lget")
         .disable_colored_help(true)
@@ -93,14 +101,24 @@ fn parse_arguments() -> Result<(Vec<String>, u8), &'static str> {
                 .action(clap::ArgAction::SetTrue)
                 .help("Terminate output values with null bytes (0x00) instead of newlines."),
         )
+        .arg(Arg::new("json")
+             .short('j')
+             .long("json")
+             .action(clap::ArgAction::SetTrue)
+             .help("Write specified attributes for each entry as a JSON object with string array values."),
+        )
         .get_matches();
 
     if matches.get_flag("null-delimit") {
         delimiter = 0x00;
     }
 
+    if matches.get_flag("json") {
+        output_format = OutputFormat::Json;
+    }
+
     if let Some(attrtype) = matches.get_many::<String>("ATTRIBUTES") {
-        Ok((attrtype.cloned().collect(), delimiter))
+        Ok((attrtype.cloned().collect(), delimiter, output_format))
     } else {
         // shouldn't happen when the argument is required
         Err("missing attribute type name on command line")
@@ -119,12 +137,15 @@ fn write_tokens<TR: WriteToken>(tr: TR) -> std::io::Result<()> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exit_code = {
-        let (attrspec_strings, delimiter) = parse_arguments()?;
+        let (attrspec_strings, delimiter, output_format) = parse_arguments()?;
         let mut attrspecs: Vec<AttrSpec> = Vec::new();
         for spec in attrspec_strings.iter() {
             attrspecs.push(AttrSpec::parse(spec)?);
         }
-        let result = if attrspecs.len() == 1 && attrspecs[0].value_filters.len() == 0 {
+        let result = if attrspecs.len() == 1
+            && attrspecs[0].value_filters.len() == 0
+            && output_format == OutputFormat::Tsv
+        {
             let mut token_receiver = OctetStreamTokenWriter::new(&attrspecs[0].attribute, stdout());
             token_receiver.set_delimiter(delimiter);
             write_tokens(token_receiver)
@@ -132,10 +153,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let attributes = attrspecs.iter()
                 .map(|spec| spec.attribute.clone())
                 .collect();
-            let mut hash_map_writer = TsvEntryWriter::new(attrspecs, stdout());
-            hash_map_writer.set_record_separator(delimiter);
-            let token_writer = EntryTokenWriter::new(attributes, &mut hash_map_writer);
-            write_tokens(token_writer)
+            match output_format {
+                OutputFormat::Tsv => {
+                    let mut entry_writer = TsvEntryWriter::new(attrspecs, stdout());
+                    entry_writer.set_record_separator(delimiter);
+                    let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                    write_tokens(token_writer)
+                },
+                OutputFormat::Json => {
+                    let mut entry_writer = JsonEntryWriter::new(stdout());
+                    //entry_writer.set_record_separator(delimiter);
+                    let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                    write_tokens(token_writer)
+                },
+            }
         };
         if let Err(err) = result {
             eprintln!("{}", err);
