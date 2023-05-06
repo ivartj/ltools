@@ -7,13 +7,20 @@ use std::write;
 
 pub struct JsonEntryWriter<W: Write> {
     dest: W,
+    record_separator: u8,
 }
 
 impl<W: Write> JsonEntryWriter<W> {
     pub fn new(dest: W) -> JsonEntryWriter<W> {
         JsonEntryWriter{
             dest,
+            record_separator: b'\n',
         }
+    }
+
+    pub fn set_record_separator(&mut self, c: u8) -> &mut Self {
+        self.record_separator = c;
+        self
     }
 }
 
@@ -22,16 +29,17 @@ fn write_json_string<W: Write>(w: &mut W, s: &str) -> Result<()> {
     w.write_all(b"\"")?;
     for (i, c) in s.char_indices() {
         match c {
-            '\\' | '"' | '\r' | '\n' => if written < i {
+            '\\' | '"' | '\r' | '\n' | '\0' => if written < i {
                 w.write_all(&s.as_bytes()[written..i])?;
                 written = i;
             },
             _ => (),
         }
         match c {
-            '\\' | '"' => write!(w, "\\{c}")?,
-            '\r' => w.write_all(b"\\r")?,
-            '\n' => w.write_all(b"\\n")?,
+            '\\' | '"' => { write!(w, "\\{c}")?; written += 1 },
+            '\r' => { w.write_all(b"\\r")?; written += 1 },
+            '\n' => { w.write_all(b"\\n")?; written += 1 },
+            '\0' => { w.write_all(b"\\u0000")?; written += 1 },
             _ => (),
         }
     }
@@ -65,3 +73,23 @@ impl<W: Write> WriteEntry for JsonEntryWriter<W> {
     }
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn write_json_string_test_a() -> Result<()> {
+        let mut buf = Vec::new();
+        write_json_string(&mut buf, "foo\nbar")?;
+        assert_eq!(String::from_utf8_lossy(&buf), r#""foo\nbar""#);
+        Ok(())
+    }
+
+    #[test]
+    fn write_json_string_test_b() -> Result<()> {
+        let mut buf = Vec::new();
+        write_json_string(&mut buf, "\n")?;
+        assert_eq!(String::from_utf8_lossy(&buf), r#""\n""#);
+        Ok(())
+    }
+}

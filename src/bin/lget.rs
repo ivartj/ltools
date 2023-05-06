@@ -162,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 OutputFormat::Json => {
                     let mut entry_writer = JsonEntryWriter::new(stdout());
-                    //entry_writer.set_record_separator(delimiter);
+                    entry_writer.set_record_separator(delimiter);
                     let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
                     write_tokens(token_writer)
                 },

@@ -8,6 +8,9 @@ test::SGVsbG8gd
 
 
 dn: cn=foo
+cn: foo
+nullbyte::AA==
+newline::Cg==
 
 
 dn: cn=bar
