@@ -11,3 +11,6 @@ dn: cn=foo
 
 
 dn: cn=bar
+
+#
+result: 2

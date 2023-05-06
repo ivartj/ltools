@@ -29,7 +29,15 @@ impl<W: WriteEntry> WriteEntry for &mut W {
     }
 }
 
+#[derive(Eq, PartialEq)]
+enum WriterState {
+    BeforeEntry,
+    Ignoring,
+    Processing,
+}
+
 pub struct EntryTokenWriter<'a, W: WriteEntry> {
+    state: WriterState,
     attr2index: HashMap<String, usize>,
     attrvalues: Vec<Vec<EntryValue<'a>>>,
     attrmatch: Option<usize>, // index of currently matched attribute
@@ -50,6 +58,7 @@ impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
             .map(|(v, k)| (k, v))
             .collect();
         EntryTokenWriter {
+            state: WriterState::BeforeEntry,
             attr2index,
             attrvalues,
             attrmatch: None,
@@ -66,7 +75,22 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
         match token.kind {
             TokenKind::AttributeType => {
                 let attrlowercase = token.segment.to_ascii_lowercase();
-                self.attrmatch = self.attr2index.get(&attrlowercase).copied();
+                if self.state == WriterState::BeforeEntry
+                {
+                    // We ignore entries that don't start with a dn.
+                    // This might be information from ldapsearch about the search result or an LDIF
+                    // version specifier.
+                    self.state = if attrlowercase == "dn" {
+                        WriterState::Processing
+                    } else {
+                        WriterState::Ignoring
+                    };
+                }
+                self.attrmatch = if self.state == WriterState::Processing {
+                    self.attr2index.get(&attrlowercase).copied()
+                } else {
+                    None
+                };
             }
             TokenKind::ValueText => {
                 if self.attrmatch.is_some() {
@@ -94,13 +118,16 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
                 }
             }
             TokenKind::EntryFinish => {
-                let attr2values: HashMap<String, &Vec<EntryValue>> = self.attr2index.iter()
-                    .map(|(attr, index)| (attr.to_owned(), &self.attrvalues[*index]))
-                    .collect();
-                self.dest.write_entry(&attr2values)?;
-                for v in self.attrvalues.iter_mut() {
-                    v.clear();
+                if self.state == WriterState::Processing {
+                    let attr2values: HashMap<String, &Vec<EntryValue>> = self.attr2index.iter()
+                        .map(|(attr, index)| (attr.to_owned(), &self.attrvalues[*index]))
+                        .collect();
+                    self.dest.write_entry(&attr2values)?;
+                    for v in self.attrvalues.iter_mut() {
+                        v.clear();
+                    }
                 }
+                self.state = WriterState::BeforeEntry;
             }
         }
         Ok(())
