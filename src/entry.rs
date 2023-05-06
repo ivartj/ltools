@@ -37,7 +37,6 @@ pub struct EntryTokenWriter<'a, W: WriteEntry> {
     dest: W,
     valuetype: ValueType,
     b64state: DecodeState,
-    record_separator: u8,
 }
 
 impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
@@ -58,13 +57,7 @@ impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
             dest,
             valuetype: ValueType::Text,
             b64state: DecodeState::default(),
-            record_separator: b'\n',
         }
-    }
-
-    pub fn set_record_separator(&mut self, record_separator: u8) -> &mut Self {
-        self.record_separator = record_separator;
-        self
     }
 }
 
