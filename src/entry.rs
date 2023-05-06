@@ -45,6 +45,7 @@ pub struct EntryTokenWriter<'a, W: WriteEntry> {
     dest: W,
     valuetype: ValueType,
     b64state: DecodeState,
+    ignore_entries_without_dn: bool,
 }
 
 impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
@@ -66,7 +67,13 @@ impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
             dest,
             valuetype: ValueType::Text,
             b64state: DecodeState::default(),
+            ignore_entries_without_dn: false,
         }
+    }
+
+    pub fn set_ignore_entries_without_dn(&mut self, value: bool) -> &mut Self {
+        self.ignore_entries_without_dn = value;
+        self
     }
 }
 
@@ -80,7 +87,7 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
                     // We ignore entries that don't start with a dn.
                     // This might be information from ldapsearch about the search result or an LDIF
                     // version specifier.
-                    self.state = if attrlowercase == "dn" {
+                    self.state = if !self.ignore_entries_without_dn || attrlowercase == "dn" {
                         WriterState::Processing
                     } else {
                         WriterState::Ignoring
