@@ -146,12 +146,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             && attrspecs[0].value_filters.len() == 0
             && output_format == OutputFormat::Tsv
         {
-            let mut token_receiver = OctetStreamTokenWriter::new(&attrspecs[0].attribute, stdout());
+            let mut token_receiver = OctetStreamTokenWriter::new(&attrspecs[0].attribute.to_ascii_lowercase(), stdout());
             token_receiver.set_delimiter(delimiter);
             write_tokens(token_receiver)
         } else {
             let attributes = attrspecs.iter()
-                .map(|spec| spec.attribute.clone())
+                .map(|spec| spec.attribute.to_ascii_lowercase())
                 .collect();
             match output_format {
                 OutputFormat::Tsv => {
@@ -161,7 +161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     write_tokens(token_writer)
                 },
                 OutputFormat::Json => {
-                    let mut entry_writer = JsonEntryWriter::new(stdout());
+                    let mut entry_writer = JsonEntryWriter::new(attrspecs, stdout());
                     entry_writer.set_record_separator(delimiter);
                     let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
                     write_tokens(token_writer)

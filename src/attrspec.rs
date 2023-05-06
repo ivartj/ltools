@@ -5,7 +5,8 @@ use nom::combinator::eof;
 use crate::entry::EntryValue;
 
 pub struct AttrSpec {
-    pub attribute: String, // in lowercase
+    pub attribute: String, // in original case
+    pub attribute_lowercase: String,
     pub value_filters: Vec<ValueFilter>,
 }
 
@@ -80,7 +81,8 @@ mod parser {
         map(
             pair(attribute, many0(value_filter)),
             |(attribute, value_filters)| AttrSpec{
-                attribute: attribute.to_ascii_lowercase(),
+                attribute_lowercase: attribute.to_ascii_lowercase(),
+                attribute,
                 value_filters
             },
         )(input)

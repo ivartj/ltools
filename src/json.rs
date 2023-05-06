@@ -1,20 +1,24 @@
+use crate::attrspec::AttrSpec;
 use crate::entry::{ Entry, WriteEntry };
 use std::io::{
     Write,
     Result,
 };
 use std::write;
+use std::borrow::Cow;
 
 pub struct JsonEntryWriter<W: Write> {
     dest: W,
     record_separator: u8,
+    attrspecs: Vec<AttrSpec>,
 }
 
 impl<W: Write> JsonEntryWriter<W> {
-    pub fn new(dest: W) -> JsonEntryWriter<W> {
+    pub fn new(attrspecs: Vec<AttrSpec>, dest: W) -> JsonEntryWriter<W> {
         JsonEntryWriter{
             dest,
             record_separator: b'\n',
+            attrspecs,
         }
     }
 
@@ -54,12 +58,21 @@ impl<W: Write> WriteEntry for JsonEntryWriter<W> {
     fn write_entry(&mut self, entry: &Entry) -> Result<()> {
         self.dest.write_all(b"{")?;
         for (i, (attrtype, values)) in entry.iter().enumerate() {
+            let mut cow_values = Cow::Borrowed(*values);
+            let mut attrtype: &str = attrtype;
+            if let Some(attrspec) = self.attrspecs.iter()
+                .filter(|spec| spec.attribute_lowercase == *attrtype)
+                .next()
+            {
+              cow_values = attrspec.filter_values(*values);
+              attrtype = &attrspec.attribute;
+            }
             if i != 0 {
                 self.dest.write_all(b",")?;
             }
             write_json_string(&mut self.dest, attrtype)?;
             self.dest.write_all(b":[")?;
-            for (i, value) in values.iter().enumerate() {
+            for (i, value) in cow_values.iter().enumerate() {
                 if i != 0 {
                     self.dest.write_all(b",")?;
                 }
