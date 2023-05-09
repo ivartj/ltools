@@ -14,6 +14,7 @@ newline::Cg==
 
 
 dn: cn=bar
+control-characters::Zm9vCWJhcgBiYXoNCg==
 
 #
 result: 2

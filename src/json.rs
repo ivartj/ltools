@@ -31,20 +31,25 @@ impl<W: Write> JsonEntryWriter<W> {
 fn write_json_string<W: Write>(w: &mut W, s: &str) -> Result<()> {
     let mut written: usize = 0;
     w.write_all(b"\"")?;
+    let mut utf16buf: [u16;2] = [0;2];
     for (i, c) in s.char_indices() {
-        match c {
-            '\\' | '"' | '\r' | '\n' | '\0' => if written < i {
+        if !c.is_ascii() || c.is_ascii_control() || c == '\\' || c == '"' {
+            if i > written {
                 w.write_all(&s.as_bytes()[written..i])?;
                 written = i;
-            },
-            _ => (),
-        }
-        match c {
-            '\\' | '"' => { write!(w, "\\{c}")?; written += 1 },
-            '\r' => { w.write_all(b"\\r")?; written += 1 },
-            '\n' => { w.write_all(b"\\n")?; written += 1 },
-            '\0' => { w.write_all(b"\\u0000")?; written += 1 },
-            _ => (),
+            }
+            match c {
+                '\\' | '"' => write!(w, "\\{c}")?,
+                '\r' => w.write_all(b"\\r")?,
+                '\n' => w.write_all(b"\\n")?,
+                '\t' => w.write_all(b"\\t")?,
+                c => {
+                    for unit in c.encode_utf16(&mut utf16buf).iter().copied() {
+                        write!(w, "\\u{unit:04}")?;
+                    }
+                }
+            }
+            written += 1;
         }
     }
     if written < s.len() {
@@ -103,6 +108,14 @@ mod test {
         let mut buf = Vec::new();
         write_json_string(&mut buf, "\n")?;
         assert_eq!(String::from_utf8_lossy(&buf), r#""\n""#);
+        Ok(())
+    }
+
+    #[test]
+    fn write_json_string_test_c() -> Result<()> {
+        let mut buf = Vec::new();
+        write_json_string(&mut buf, "foo\tbar\0baz\r\n")?;
+        assert_eq!(String::from_utf8_lossy(&buf), r#""foo\tbar\u0000baz\r\n""#);
         Ok(())
     }
 }
