@@ -126,18 +126,60 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
             }
             TokenKind::EntryFinish => {
                 if self.state == WriterState::Processing {
-                    let attr2values: HashMap<String, &Vec<EntryValue>> = self.attr2index.iter()
-                        .map(|(attr, index)| (attr.to_owned(), &self.attrvalues[*index]))
+                    let entry: Entry = self.attr2index.iter()
+                        .map(|(attr, idx)| (attr.clone(), &self.attrvalues[*idx]))
                         .collect();
-                    self.dest.write_entry(&attr2values)?;
-                    for v in self.attrvalues.iter_mut() {
-                        v.clear();
-                    }
+                    self.dest.write_entry(&entry)?;
+                    self.attrvalues.iter_mut().for_each(|values| values.clear());
                 }
                 self.state = WriterState::BeforeEntry;
             }
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::lexer::Lexer;
+    use crate::loc::{ Loc, LocWrite };
+
+    impl WriteEntry for Vec<HashMap<String, Vec<String>>> {
+        fn write_entry(&mut self, entry: &Entry) -> Result<()> {
+            let owned_entry: HashMap<String, Vec<String>> = entry.iter()
+                .map(|(attr, values)| {
+                    (attr.to_owned(), values.iter().map::<String, _>(|value| String::from_utf8_lossy(value).into_owned()).collect())
+                 }).collect();
+            self.push(owned_entry);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn entry_token_writer_test_a() -> Result<()> {
+        let ldif = br#"
+dn: cn=foo
+cn: foo
+
+dn: cn=bar
+cn: bar
+"#;
+        let mut entries = Vec::new();
+        let token_writer = EntryTokenWriter::new(vec!["dn".into(), "cn".into()], &mut entries);
+        let mut lexer = Lexer::new(token_writer);
+
+        lexer.loc_write(Loc::default(), ldif)?;
+        lexer.loc_flush(Loc::default())?;
+
+        assert_eq!(entries[0]["dn"], vec!["cn=foo"]);
+        assert_eq!(entries[0]["cn"], vec!["foo"]);
+
+        // this tests that there's no residue from the previous entry
+        assert_eq!(entries[1]["dn"], vec!["cn=bar"]);
+        assert_eq!(entries[1]["cn"], vec!["bar"]);
+        Ok(())
+    }
+
 }
 
