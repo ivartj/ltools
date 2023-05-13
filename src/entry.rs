@@ -163,7 +163,7 @@ dn: cn=foo
 cn: foo
 
 dn: cn=bar
-cn: bar
+CN: bar
 "#;
         let mut entries = Vec::new();
         let token_writer = EntryTokenWriter::new(vec!["dn".into(), "cn".into()], &mut entries);
