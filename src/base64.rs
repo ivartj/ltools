@@ -58,7 +58,7 @@ impl<W: Write> DecodeWriter<W> {
     }
 }
 
-fn value_of(digit: u8) -> Option<u8> {
+fn decode_value_of(digit: u8) -> Option<u8> {
     match digit {
         b'A'..=b'Z' => Some(digit - b'A'),
         b'a'..=b'z' => Some(digit - b'a' + 26),
@@ -72,7 +72,7 @@ fn value_of(digit: u8) -> Option<u8> {
 impl<W: Write> Write for DecodeWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         for c in buf.iter().copied() {
-            self.state = match (self.state, c, value_of(c)) {
+            self.state = match (self.state, c, decode_value_of(c)) {
                 (State::B0, _, Some(value)) => {
                     self.octet = value << 2;
                     State::B6
@@ -109,6 +109,88 @@ impl<W: Write> Write for DecodeWriter<W> {
             // other states
             _ => Err(Error::new(ErrorKind::Other, "base64 decoder flushed on invalid end state")),
         }
+    }
+}
+
+enum EncodeState {
+    B0, // 0 bits filled
+    B2, // 2 bits filled
+    B4, // 4 bits filled
+}
+
+fn encode_value_of(u6: u8) -> u8 {
+    match u6 {
+        0..=25 => b'A' + u6,
+        26..=51 => u6 - 26 + b'a',
+        52..=61 => u6 - 52 + b'0',
+        62 => b'+',
+        63 => b'/',
+        _ => panic!("encode_value_of is not defined for {u6}"),
+    }
+}
+
+pub struct EncodeWriter<W: Write> {
+    inner: W,
+    state: EncodeState,
+    u6: u8,
+}
+
+impl<W: Write> EncodeWriter<W> {
+    pub fn new(inner: W) -> EncodeWriter<W> {
+        return EncodeWriter{
+            inner,
+            state: EncodeState::B0,
+            u6: 0,
+        }
+    }
+
+    fn emit(&mut self) -> Result<()> {
+        self.inner.write(&[encode_value_of(self.u6)])?;
+        Ok(())
+    }
+}
+
+impl<W: Write> Write for EncodeWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        for c in buf.iter().copied() {
+            self.state = match self.state {
+                EncodeState::B0 => {
+                    self.u6 = c >> 2;
+                    self.emit()?;
+                    self.u6 = (c << 4) & 0x3F;
+                    EncodeState::B2
+                },
+                EncodeState::B2 => {
+                    self.u6 |= c >> 4;
+                    self.emit()?;
+                    self.u6 = (c << 2) & 0x3F;
+                    EncodeState::B4
+                }
+                EncodeState::B4 => {
+                    self.u6 |= c >> 6;
+                    self.emit()?;
+                    self.u6 = c & 0x3F;
+                    self.emit()?;
+                    EncodeState::B0
+                }
+            }
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        match self.state {
+            EncodeState::B0 => {},
+            EncodeState::B2 => {
+                self.emit()?;
+                self.inner.write(b"==")?;
+            },
+            EncodeState::B4 => {
+                self.emit()?;
+                self.inner.write(b"=")?;
+            },
+        }
+        Ok(())
     }
 }
 
@@ -154,6 +236,26 @@ mod test {
         } else {
             panic!("expected error");
         }
+    }
+
+    #[test]
+    fn test_encode_a() -> Result<()> {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut encoder = EncodeWriter::new(&mut buf);
+        encoder.write(b"abcd")?;
+        encoder.flush()?;
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "YWJjZA==");
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_b() -> Result<()> {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut encoder = EncodeWriter::new(&mut buf);
+        encoder.write(b"12345678")?;
+        encoder.flush()?;
+        assert_eq!(String::from_utf8_lossy(&buf[..]), "MTIzNDU2Nzg=");
+        Ok(())
     }
 }
 

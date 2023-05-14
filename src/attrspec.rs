@@ -3,6 +3,9 @@ use nom::Err;
 use nom::sequence::terminated;
 use nom::combinator::eof;
 use crate::entry::EntryValue;
+use crate::base64::EncodeWriter;
+use std::ops::Deref;
+use std::io::Write;
 
 pub struct AttrSpec {
     pub attribute: String, // in original case
@@ -43,6 +46,7 @@ impl AttrSpec {
 
 pub enum ValueFilter {
     NullCoalesce(Vec<EntryValue<'static>>), // static because values are never borrowed
+    Base64,
 }
 
 impl ValueFilter {
@@ -56,6 +60,17 @@ impl ValueFilter {
                 } else {
                     values
                 }
+            },
+            ValueFilter::Base64 => {
+                Cow::Owned(
+                    values.deref().iter().map(|value| {
+                        let mut buf: Vec<u8> = Vec::new();
+                        let mut base64encoder = EncodeWriter::new(&mut buf);
+                        base64encoder.write(&value.deref()[..]).unwrap();
+                        base64encoder.flush().unwrap();
+                        Cow::Owned(buf)
+                    }).collect()
+                )
             },
         }
     }
@@ -111,7 +126,7 @@ mod parser {
     }
 
     fn value_filter(input: &str) -> IResult<&str, ValueFilter> {
-        null_coalesce(input)
+        alt((null_coalesce, base64))(input)
     }
 
     fn null_coalesce(input: &str) -> IResult<&str, ValueFilter> {
@@ -119,7 +134,10 @@ mod parser {
             preceded(tag(":-"), take_while(|_| true)),
             |value: &str| ValueFilter::NullCoalesce(vec![Cow::Owned(value.into())]),
         )(input)
+    }
 
+    fn base64(input: &str) -> IResult<&str, ValueFilter> {
+        map(tag(".base64"), |_| ValueFilter::Base64)(input)
     }
 
 }
