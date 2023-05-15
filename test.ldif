@@ -8,7 +8,7 @@ test::SGVsbG8gd
 
 
 dn: cn=foo
-cn: foo
+CN: foo
 nullbyte::AA==
 newline::Cg==
 
