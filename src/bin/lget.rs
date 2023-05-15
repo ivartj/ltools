@@ -135,46 +135,46 @@ fn write_tokens<TR: WriteToken>(tr: TR) -> std::io::Result<()> {
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let exit_code = {
-        let (attrspec_strings, delimiter, output_format) = parse_arguments()?;
-        let mut attrspecs: Vec<AttrSpec> = Vec::new();
-        for spec in attrspec_strings.iter() {
-            attrspecs.push(AttrSpec::parse(spec)?);
-        }
-        let result = if attrspecs.len() == 1
-            && attrspecs[0].value_filters.len() == 0
-            && output_format == OutputFormat::Tsv
-        {
-            let mut token_receiver = OctetStreamTokenWriter::new(&attrspecs[0].attribute.to_ascii_lowercase(), stdout());
-            token_receiver.set_delimiter(delimiter);
-            write_tokens(token_receiver)
-        } else {
-            let attributes = attrspecs.iter()
-                .map(|spec| spec.attribute.to_ascii_lowercase())
-                .collect();
-            match output_format {
-                OutputFormat::Tsv => {
-                    let mut entry_writer = TsvEntryWriter::new(attrspecs, stdout());
-                    entry_writer.set_record_separator(delimiter);
-                    let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
-                    write_tokens(token_writer)
-                },
-                OutputFormat::Json => {
-                    let mut entry_writer = JsonEntryWriter::new(attrspecs, stdout());
-                    entry_writer.set_record_separator(delimiter);
-                    let mut token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
-                    token_writer.set_ignore_entries_without_dn(true);
-                    write_tokens(token_writer)
-                },
-            }
-        };
-        if let Err(err) = result {
-            eprintln!("{}", err);
-            1
-        } else {
-            0
+fn get_result() -> Result<(), Box<dyn std::error::Error>> {
+    let (attrspec_strings, delimiter, output_format) = parse_arguments()?;
+    let mut attrspecs: Vec<AttrSpec> = Vec::new();
+    for spec in attrspec_strings.iter() {
+        attrspecs.push(AttrSpec::parse(spec)?);
+    }
+    if attrspecs.len() == 1
+        && attrspecs[0].value_filters.len() == 0
+        && output_format == OutputFormat::Tsv
+    {
+        let mut token_receiver = OctetStreamTokenWriter::new(&attrspecs[0].attribute.to_ascii_lowercase(), stdout());
+        token_receiver.set_delimiter(delimiter);
+        write_tokens(token_receiver)?;
+    } else {
+        let attributes = attrspecs.iter()
+            .map(|spec| spec.attribute.to_ascii_lowercase())
+            .collect();
+        match output_format {
+            OutputFormat::Tsv => {
+                let mut entry_writer = TsvEntryWriter::new(attrspecs, stdout());
+                entry_writer.set_record_separator(delimiter);
+                let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                write_tokens(token_writer)?;
+            },
+            OutputFormat::Json => {
+                let mut entry_writer = JsonEntryWriter::new(attrspecs, stdout());
+                entry_writer.set_record_separator(delimiter);
+                let mut token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                token_writer.set_ignore_entries_without_dn(true);
+                write_tokens(token_writer)?;
+            },
         }
     };
-    std::process::exit(exit_code);
+    Ok(())
+}
+
+fn main() {
+    let result = get_result();
+    if let Err(err) = result {
+        eprintln!("lget: {}", err);
+        std::process::exit(1);
+    }
 }
