@@ -1,20 +1,44 @@
-dn: cn=admin,ou=sa,o=system
+dn: cn=admin,dc=example,dc=com
 cn:admin
+objectClass: top
 nextScheduledRun: 1663365600
-test::SGVsbG8gd
+greeting::SGVsbG8gd
  29ybGQh
 
 
 
 
-dn: cn=foo
+dn: cn=foo,dc=example,dc=com
 CN: foo
+objectClass: top
+objectClass: person
 nullbyte::AA==
 newline::Cg==
+double-quote: "
+directReports: cn=bar,dc=example,dc=com
+greeting::RHppZcWEIGRvYnJ5IQ==
 
 
-dn: cn=bar
+dn: cn=bar,dc=example,dc=com
+cn: bar
+objectClass: top
+objectClass: person
+manager: cn=foo,dc=example,dc=com
 control-characters::Zm9vCWJhcgBiYXoNCg==
+
+dn: cn=baz,dc=example,dc=com
+cn: baz
+objectClass: top
+objectClass: person
+manager: cn=foo,dc=example,dc=com
+
+dn: cn=group,dc=example,dc=com
+cn: group
+objectClass: top
+objectClass: groupOfNames
+member: cn=foo,dc=example,dc=com
+member: cn=bar,dc=example,dc=com
+
 
 #
 result: 2

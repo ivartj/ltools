@@ -113,7 +113,7 @@ fn parse_arguments() -> Result<(Vec<String>, u8, OutputFormat), &'static str> {
              .short('c')
              .long("csv")
              .action(clap::ArgAction::SetTrue)
-             .help("Write specified attributes for each entry as a JSON object with string array values."),
+             .help("Write values using the CSV format, including a header."),
         )
         .get_matches();
 
