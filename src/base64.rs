@@ -137,7 +137,7 @@ pub struct EncodeWriter<W: Write> {
 
 impl<W: Write> EncodeWriter<W> {
     pub fn new(inner: W) -> EncodeWriter<W> {
-        return EncodeWriter{
+        EncodeWriter{
             inner,
             state: EncodeState::B0,
             u6: 0,
@@ -145,7 +145,7 @@ impl<W: Write> EncodeWriter<W> {
     }
 
     fn emit(&mut self) -> Result<()> {
-        self.inner.write(&[encode_value_of(self.u6)])?;
+        self.inner.write_all(&[encode_value_of(self.u6)])?;
         Ok(())
     }
 }
@@ -183,11 +183,11 @@ impl<W: Write> Write for EncodeWriter<W> {
             EncodeState::B0 => {},
             EncodeState::B2 => {
                 self.emit()?;
-                self.inner.write(b"==")?;
+                self.inner.write_all(b"==")?;
             },
             EncodeState::B4 => {
                 self.emit()?;
-                self.inner.write(b"=")?;
+                self.inner.write_all(b"=")?;
             },
         }
         Ok(())

@@ -157,7 +157,7 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
         attrspecs.push(AttrSpec::parse(spec)?);
     }
     if attrspecs.len() == 1
-        && attrspecs[0].value_filters.len() == 0
+        && attrspecs[0].value_filters.is_empty()
         && output_format == OutputFormat::Tsv
     {
         let mut token_receiver = OctetStreamTokenWriter::new(&attrspecs[0].attribute.to_ascii_lowercase(), stdout());

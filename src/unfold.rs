@@ -57,7 +57,7 @@ impl<LW: LocWrite> LocWrite for Unfolder<LW> {
             }
         }
         self.skipstate = skipper.save_state();
-        return Ok(buf.len())
+        Ok(buf.len())
     }
 
     fn loc_flush(&mut self, loc: Loc) -> Result<()> {

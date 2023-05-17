@@ -23,15 +23,12 @@ pub struct Skipper<'a, LW: LocWrite>  {
     state: SkipState,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub enum SkipState {
+    #[default]
     Writing,
     SkippingFrom(Loc, usize),
     SkippingWithPrefix(Loc, [u8;MAX_PREFIX], usize),
-}
-
-impl Default for SkipState {
-    fn default() -> Self { SkipState::Writing }
 }
 
 impl SkipState {

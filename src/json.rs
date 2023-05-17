@@ -44,7 +44,7 @@ fn write_json_string<W: Write>(w: &mut W, s: &str) -> Result<()> {
                 '\n' => w.write_all(b"\\n")?,
                 '\t' => w.write_all(b"\\t")?,
                 c => {
-                    for unit in c.encode_utf16(&mut utf16buf).iter().copied() {
+                    for unit in c.encode_utf16(&mut utf16buf).iter() {
                         write!(w, "\\u{unit:04}")?;
                     }
                 }
@@ -66,10 +66,9 @@ impl<W: Write> WriteEntry for JsonEntryWriter<W> {
             let mut cow_values = Cow::Borrowed(*values);
             let mut attrtype: &str = attrtype;
             if let Some(attrspec) = self.attrspecs.iter()
-                .filter(|spec| spec.attribute_lowercase == *attrtype)
-                .next()
+                .find(|spec| spec.attribute_lowercase == *attrtype)
             {
-              cow_values = attrspec.filter_values(*values);
+              cow_values = attrspec.filter_values(values);
               attrtype = &attrspec.attribute;
             }
             if i != 0 {

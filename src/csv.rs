@@ -30,12 +30,7 @@ impl<W: Write> CsvEntryWriter<W> {
 fn csv_escape<W: Write> (dest: &mut W, field: &[u8]) -> Result<()> {
     let field_needs_escaping = field.iter()
         .copied()
-        .any(|c| {
-            match c {
-                b',' | b'\n' | b'\r' | b'"' => true,
-                _ => false,
-            }
-        });
+        .any(|c| matches!(c, b',' | b'\n' | b'\r' | b'"'));
     if !field_needs_escaping {
         dest.write_all(field)?;
         return Ok(());

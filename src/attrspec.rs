@@ -40,7 +40,7 @@ impl AttrSpec {
         for filter in self.value_filters.iter() {
             values = filter.filter_values(values);
         }
-        return values;
+        values
     }
 }
 
@@ -66,7 +66,7 @@ impl ValueFilter {
                     values.deref().iter().map(|value| {
                         let mut buf: Vec<u8> = Vec::new();
                         let mut base64encoder = EncodeWriter::new(&mut buf);
-                        base64encoder.write(&value.deref()[..]).unwrap();
+                        base64encoder.write_all(&value.deref()[..]).unwrap();
                         base64encoder.flush().unwrap();
                         Cow::Owned(buf)
                     }).collect()
