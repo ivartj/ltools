@@ -7,6 +7,7 @@ pub mod loc;
 pub mod skip;
 pub mod cartesian;
 pub mod tsv;
+pub mod csv;
 pub mod json;
 pub mod attrspec;
 pub mod entry;

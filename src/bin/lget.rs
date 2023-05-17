@@ -5,6 +5,7 @@ use ltools::lexer::{Lexer, WriteToken, Token, TokenKind};
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
 use ltools::tsv::TsvEntryWriter;
+use ltools::csv::CsvEntryWriter;
 use ltools::json::JsonEntryWriter;
 use ltools::entry::EntryTokenWriter;
 use ltools::attrspec::AttrSpec;
@@ -84,6 +85,7 @@ impl<W: Write> WriteToken for OctetStreamTokenWriter<W> {
 #[derive(PartialEq, Eq)]
 enum OutputFormat {
     Tsv,
+    Csv,
     Json,
 }
 
@@ -107,14 +109,27 @@ fn parse_arguments() -> Result<(Vec<String>, u8, OutputFormat), &'static str> {
              .action(clap::ArgAction::SetTrue)
              .help("Write specified attributes for each entry as a JSON object with string array values."),
         )
+        .arg(Arg::new("csv")
+             .short('c')
+             .long("csv")
+             .action(clap::ArgAction::SetTrue)
+             .help("Write specified attributes for each entry as a JSON object with string array values."),
+        )
         .get_matches();
 
     if matches.get_flag("null-delimit") {
         delimiter = 0x00;
     }
 
+    let output_formats = ["json", "csv"];
+    if output_formats.iter().filter(|format| matches.get_flag(format)).count() > 1 {
+        return Err("options specify mutually exclusive output formats")
+    }
     if matches.get_flag("json") {
         output_format = OutputFormat::Json;
+    }
+    if matches.get_flag("csv") {
+        output_format = OutputFormat::Csv;
     }
 
     if let Some(attrtype) = matches.get_many::<String>("ATTRIBUTES") {
@@ -156,6 +171,11 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
             OutputFormat::Tsv => {
                 let mut entry_writer = TsvEntryWriter::new(attrspecs, stdout());
                 entry_writer.set_record_separator(delimiter);
+                let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                write_tokens(token_writer)?;
+            },
+            OutputFormat::Csv => {
+                let mut entry_writer = CsvEntryWriter::new(attrspecs, stdout());
                 let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
                 write_tokens(token_writer)?;
             },
