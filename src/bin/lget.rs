@@ -95,7 +95,7 @@ fn parse_arguments() -> Result<(Vec<String>, u8, OutputFormat), &'static str> {
 
     let matches = command!("lget")
         .disable_colored_help(true)
-        .arg(arg!(<ATTRIBUTES> ... "The attribute type name to get values of."))
+        .arg(arg!(<ATTRIBUTES> ... "The attribute type names to get values of."))
         .arg(
             Arg::new("null-delimit")
                 .short('0')

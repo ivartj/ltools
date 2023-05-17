@@ -14,7 +14,7 @@ additionally supports normal (non-regionalized) CSV output and JSON output.
         lget [OPTIONS] <ATTRIBUTES>...
 
     ARGS:
-        <ATTRIBUTES>...    The attribute type name to get values of.
+        <ATTRIBUTES>...    The attribute type names to get values of.
 
     OPTIONS:
         -0, --null-delimit    Terminate output values with null bytes (0x00) instead of newlines.
@@ -31,7 +31,7 @@ Example usage:
     cn=foo,dc=example,dc=com        Dzień dobry!
 
 `lget` does not differentiate between an LDIF entry's DN and attributes, except
-that it will not print JSON objects for LDIF data that does start with a DN (in
+that it will not print JSON objects for LDIF data that does not start with a DN (in
 order to ignore things like version headers).
 
 Cartesian product of entry attribute values is useful when an entry can have
