@@ -108,9 +108,12 @@ mod parser {
     }
 
     fn attribute_name(input: &str) -> IResult<&str, String> {
+        // Underscores are not legal in LDAP attribute type names, but we allow
+        // them here because they appear in attributes such as loaded_class_count
+        // under NetIQ IDM's cn=jvm_stats,cn=monitor subtree.
         let (input, start_char) = satisfy(|c| c.is_ascii_alphabetic())(input)?;
         fold_many0(
-            satisfy(|c| c.is_ascii_alphanumeric() || c == '-'),
+            satisfy(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
             move || start_char.to_string(),
             |mut s, c| { s.push(c); s},
         )(input)

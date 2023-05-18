@@ -127,7 +127,10 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
                     b';' => {
                         return Err(Error::new(ErrorKind::Other, format!("unexpected semicolon on line {}, column {} (attribute options are not yet supported)", loc.line, loc.column)));
                     },
-                    ALPHA!() | DIGIT!() | b'-' => {
+                    ALPHA!() | DIGIT!() | b'-' | b'_' => {
+                        // Underscores are not legal in LDAP attribute type names, but we allow
+                        // them here because they appear in attributes such as loaded_class_count
+                        // under NetIQ IDM's cn=jvm_stats,cn=monitor subtree.
                         if self.buf.len() >= MAX_TYPE_LENGTH {
                             let msg = format!("maximum attribute type name length exceeded on line {}, column {}", loc.line, loc.column);
                             return Err(Error::new(ErrorKind::Other, msg));
