@@ -4,10 +4,15 @@ ltools
 Command line tools to process LDIF data (LDIF - LDAP Data Interchange
 Format).
 
-For now this only includes `lget`, which extracts attribute values from LDIF
-entries. If more than one attribute is specified, `lget` will by default print
-a cartesian product of the attributes in each entry as tab-separated values. It
-additionally supports normal (non-regionalized) CSV output and JSON output.
+For now this includes `lget`, which extracts attribute values from LDIF
+entries, and `lescape`, which escapes its input for use in LDAP search filters.
+
+## `lget`
+
+When you specify more than one attribute, `lget` will by default print a
+cartesian product of the values of each attribute as tab-separated values.
+`lget` additionally supports normal (non-regionalized) CSV output and JSON
+output.
 
     $ lget --help
     USAGE:
@@ -65,3 +70,18 @@ each specified LDAP attribute is represented as an array of values.
     {"cn":["bar"],"objectClass":["top","person"],"dn":["cn=bar,dc=example,dc=com"]}
     {"objectClass":["top","person"],"dn":["cn=baz,dc=example,dc=com"],"cn":["baz"]}
     {"dn":["cn=group,dc=example,dc=com"],"cn":["group"],"objectClass":["top","groupOfNames"]}
+
+## `lescape`
+
+`lescape` is a simple program that is intended to be used alongside the
+`ldapsearch` `-f` option. The `ldapsearch` `-f` option allows you to write a
+search filter as a template and quickly execute multiple queries based on this
+template:
+
+    cat DNs.txt | lescape | ldapsearch [...] -f - '(entryDN=%s)'
+
+`entryDN` is an operational attribute supported by many LDAP servers. Using the
+`lescape` filter, one can avoid problems when the DNs in the file contain
+parentheses or other characters with syntactical meanings in LDAP search
+filters.
+
