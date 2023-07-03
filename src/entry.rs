@@ -31,6 +31,8 @@ impl<W: WriteEntry> WriteEntry for &mut W {
 
 #[derive(Eq, PartialEq)]
 enum WriterState {
+    Start,
+    Version,
     BeforeEntry,
     Ignoring,
     Processing,
@@ -59,7 +61,7 @@ impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
             .map(|(v, k)| (k, v))
             .collect();
         EntryTokenWriter {
-            state: WriterState::BeforeEntry,
+            state: WriterState::Start,
             attr2index,
             attrvalues,
             attrmatch: None,
@@ -82,6 +84,13 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
         match token.kind {
             TokenKind::AttributeType => {
                 let attrlowercase = token.segment.to_ascii_lowercase();
+                if self.state == WriterState::Start {
+                    if attrlowercase == "version" {
+                        self.state = WriterState::Version;
+                    } else {
+                        self.state = WriterState::BeforeEntry;
+                    }
+                }
                 if self.state == WriterState::BeforeEntry
                 {
                     // We ignore entries that don't start with a dn.
@@ -100,6 +109,9 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
                 };
             }
             TokenKind::ValueText => {
+                if self.state == WriterState::Version {
+                    self.state = WriterState::BeforeEntry;
+                }
                 if self.attrmatch.is_some() {
                     self.valuebuf.write_all(token.segment.as_bytes())?;
                     self.valuetype = ValueType::Text;
@@ -159,6 +171,7 @@ mod test {
     #[test]
     fn entry_token_writer_test_a() -> Result<()> {
         let ldif = br#"
+version: 1
 dn: cn=foo
 cn: foo
 
@@ -166,7 +179,8 @@ dn: cn=bar
 CN: bar
 "#;
         let mut entries = Vec::new();
-        let token_writer = EntryTokenWriter::new(vec!["dn".into(), "cn".into()], &mut entries);
+        let mut token_writer = EntryTokenWriter::new(vec!["dn".into(), "cn".into()], &mut entries);
+        token_writer.set_ignore_entries_without_dn(true);
         let mut lexer = Lexer::new(token_writer);
 
         lexer.loc_write(Loc::default(), ldif)?;

@@ -1,3 +1,4 @@
+version: 1
 dn: cn=admin,dc=example,dc=com
 cn:admin
 objectClass: top
