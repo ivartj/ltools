@@ -192,6 +192,9 @@ CN: bar
         // this tests that there's no residue from the previous entry
         assert_eq!(entries[1]["dn"], vec!["cn=bar"]);
         assert_eq!(entries[1]["cn"], vec!["bar"]);
+
+        // Because 'result: 2' does not start with a dn, it should be regarded as an entry
+        assert_eq!(entries.len(), 2);
         Ok(())
     }
 
