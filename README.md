@@ -61,6 +61,15 @@ Attribute values can be base64-encoded by suffixing the attribute name with
     $ cat test.ldif | lget dn control-characters.base64
     cn=bar,dc=example,dc=com        Zm9vCWJhcgBiYXoNCg==
 
+Similarly with hexademical encoding:
+
+    $ lget cn cn.hex < test.ldif
+    admin   61646d696e
+    foo     666f6f
+    bar     626172
+    baz     62617a
+    group   67726f7570
+
 In JSON output each entry is output as a JSON object on a single line, in which
 each specified LDAP attribute is represented as an array of values.
 
