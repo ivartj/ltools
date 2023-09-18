@@ -47,6 +47,7 @@ impl AttrSpec {
 pub enum ValueFilter {
     NullCoalesce(Vec<EntryValue<'static>>), // static because values are never borrowed
     Base64,
+    Hex,
 }
 
 impl ValueFilter {
@@ -68,6 +69,17 @@ impl ValueFilter {
                         let mut base64encoder = EncodeWriter::new(&mut buf);
                         base64encoder.write_all(&value.deref()[..]).unwrap();
                         base64encoder.flush().unwrap();
+                        Cow::Owned(buf)
+                    }).collect()
+                )
+            },
+            ValueFilter::Hex => {
+                Cow::Owned(
+                    values.deref().iter().map(|value| {
+                        let mut buf: Vec<u8> = Vec::new();
+                        for byte in value.iter().copied() {
+                            _ = write!(&mut buf, "{:02x}", byte);
+                        }
                         Cow::Owned(buf)
                     }).collect()
                 )
@@ -129,7 +141,7 @@ mod parser {
     }
 
     fn value_filter(input: &str) -> IResult<&str, ValueFilter> {
-        alt((null_coalesce, base64))(input)
+        alt((null_coalesce, base64, hex))(input)
     }
 
     fn null_coalesce(input: &str) -> IResult<&str, ValueFilter> {
@@ -141,6 +153,10 @@ mod parser {
 
     fn base64(input: &str) -> IResult<&str, ValueFilter> {
         map(tag(".base64"), |_| ValueFilter::Base64)(input)
+    }
+
+    fn hex(input: &str) -> IResult<&str, ValueFilter> {
+        map(tag(".hex"), |_| ValueFilter::Hex)(input)
     }
 
 }
