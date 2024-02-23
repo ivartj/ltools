@@ -138,11 +138,13 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
             }
             TokenKind::EntryFinish => {
                 if self.state == WriterState::Processing {
-                    let entry: Entry = self.attr2index.iter()
-                        .map(|(attr, idx)| (attr.clone(), &self.attrvalues[*idx]))
+                    let entry: HashMap<String, &Vec<EntryValue>> = self.attr2index.iter()
+                        .map(|(attr, index)| (attr.clone(), &self.attrvalues[*index]))
                         .collect();
                     self.dest.write_entry(&entry)?;
-                    self.attrvalues.iter_mut().for_each(|values| values.clear());
+                    for values in self.attrvalues.iter_mut() {
+                        values.clear();
+                    }
                 }
                 self.state = WriterState::BeforeEntry;
             }
@@ -175,6 +177,8 @@ version: 1
 dn: cn=foo
 cn: foo
 
+search: 2
+
 dn: cn=bar
 CN: bar
 "#;
@@ -193,7 +197,7 @@ CN: bar
         assert_eq!(entries[1]["dn"], vec!["cn=bar"]);
         assert_eq!(entries[1]["cn"], vec!["bar"]);
 
-        // Because 'result: 2' does not start with a dn, it should be regarded as an entry
+        // Because 'search: 2' does not start with a dn, it should not be regarded as an entry
         assert_eq!(entries.len(), 2);
         Ok(())
     }
