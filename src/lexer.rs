@@ -191,10 +191,20 @@ impl<R: WriteToken> LocWrite for Lexer<R> {
                         self.buf.push(c);
                         State::SafeStringValue
                     },
+                    (State::SafeStringValue, b'\n') => {
+                        self.emit(TokenKind::ValueText)?;
+                        self.emit(TokenKind::ValueFinish)?;
+                        State::LineStart(true)
+                    },
                     (State::Base64Value, BASE64_CHAR!()) => {
                         self.token_start = loc;
                         self.buf.push(c);
                         State::Base64Value
+                    },
+                    (State::Base64Value, b'\n') => {
+                        self.emit(TokenKind::ValueBase64)?;
+                        self.emit(TokenKind::ValueFinish)?;
+                        State::LineStart(true)
                     },
                     (_, _) => return Err(Error::new(ErrorKind::Other, format!("unexpected character on line {}, column {} while expecting value after attribute type", loc.line, loc.column))),
                 },
@@ -272,6 +282,9 @@ mod tests {
                     cn: admin\n\
                     # comment 4\n\
                     sn:: MO4Z2VzdMO4bA==\n\
+                    # empty values preceded b whitespace\n\
+                    foo: \n\
+                    foo:: \n\
                     \n\
                     dn: cn=uaadmin,ou=sa,o=data\n\
                     ").expect("success");
@@ -289,13 +302,21 @@ mod tests {
         assert_eq!(tuples[7], (TokenKind::ValueBase64, String::from("MO4Z2VzdMO4bA==")));
         assert_eq!(tuples[8], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(tuples[9], (TokenKind::EntryFinish, String::from("")));
+        assert_eq!(tuples[9], (TokenKind::AttributeType, String::from("foo")));
+        assert_eq!(tuples[10], (TokenKind::ValueText, String::from("")));
+        assert_eq!(tuples[11], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(tuples[10], (TokenKind::AttributeType, String::from("dn")));
-        assert_eq!(tuples[11], (TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data")));
-        assert_eq!(tuples[12], (TokenKind::ValueFinish, String::from("")));
-        assert_eq!(tuples[13], (TokenKind::EntryFinish, String::from("")));
-        assert_eq!(tuples.len(), 14);
+        assert_eq!(tuples[12], (TokenKind::AttributeType, String::from("foo")));
+        assert_eq!(tuples[13], (TokenKind::ValueBase64, String::from("")));
+        assert_eq!(tuples[14], (TokenKind::ValueFinish, String::from("")));
+
+        assert_eq!(tuples[15], (TokenKind::EntryFinish, String::from("")));
+
+        assert_eq!(tuples[16], (TokenKind::AttributeType, String::from("dn")));
+        assert_eq!(tuples[17], (TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data")));
+        assert_eq!(tuples[18], (TokenKind::ValueFinish, String::from("")));
+        assert_eq!(tuples[19], (TokenKind::EntryFinish, String::from("")));
+        assert_eq!(tuples.len(), 20);
     }
 }
 
