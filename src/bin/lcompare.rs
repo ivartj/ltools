@@ -9,7 +9,6 @@ use std::io::{copy, Read, Write};
 use std::collections::BTreeMap;
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::ops::Deref;
 
 struct Parameters {
     old: String,
@@ -126,7 +125,7 @@ fn write_add<'a, 'b, W: Write>(w: &mut W, entry: &Entry<'a, 'b>) -> std::io::Res
             continue;
         }
         for value in entry.get(&attr) {
-            write_attrval(&mut w, &attr, value.as_slice())?;
+            write_attrval(&mut w, &attr, value)?;
         }
     }
     writeln!(w, "")?;
@@ -151,19 +150,23 @@ enum ModifyChangeRecordOpType {
     Replace,
 }
 
-struct ModifyChangeRecordOp {
+struct ModifyChangeRecordOp<'a> {
     typ: ModifyChangeRecordOpType,
     attr: String,
-    values: Vec<Vec<u8>>,
+    values: Vec<&'a [u8]>,
 }
 
-struct ModifyChangeRecord {
+struct ModifyChangeRecord<'a> {
     dn: String,
-    ops: Vec<ModifyChangeRecordOp>,
+    ops: Vec<ModifyChangeRecordOp<'a>>,
 }
 
-impl ModifyChangeRecord {
-    fn new<'a, 'b, 'c, 'd>(old: &Entry<'a, 'b>, new: &Entry<'c, 'd>) -> Option<ModifyChangeRecord> {
+impl<'z> ModifyChangeRecord<'z> {
+    fn new<'a, 'b, 'c, 'd>(old: &'z Entry<'a, 'b>, new: &'z Entry<'c, 'd>) -> Option<ModifyChangeRecord<'z>>
+    where
+        'b: 'z,
+        'd: 'z
+    {
         let dn: Cow<str> = match old.get_one_str("dn") {
             Some(dn) => dn,
             None => return None,
@@ -183,25 +186,23 @@ impl ModifyChangeRecord {
                 (Some(old_attr), Some(new_attr)) => {
                     match old_attr.cmp(new_attr) {
                         Ordering::Equal => {
-                            let del_values: Vec<Vec<u8>> = old.get(&old_attr)
-                                .iter()
-                                .filter(|old_value| new.get(&new_attr).iter()
-                                    .any(|new_value| {
-                                        let equal = new_value.as_slice() == old_value.as_slice();
-                                        equal
-                                    }) == false)
-                                .map(Deref::deref)
-                                .cloned()
+                            let del_values: Vec<&[u8]> = old.get(&old_attr)
+                                .filter(|old_value: &&[u8]| {
+                                    new.get(&new_attr)
+                                        .any(|new_value: &[u8]| {
+                                            let equal = new_value == *old_value;
+                                            equal
+                                        }) == false
+                                })
                                 .collect();
-                            let add_values: Vec<Vec<u8>> = new.get(&new_attr)
-                                .iter()
-                                .filter(|new_value| old.get(&old_attr).iter()
-                                    .any(|old_value| {
-                                        let equal = old_value.as_slice() == new_value.as_slice();
-                                        equal
-                                    }) == false)
-                                .map(Deref::deref)
-                                .cloned()
+                            let add_values: Vec<&[u8]> = new.get(&new_attr)
+                                .filter(|new_value: &&[u8]| {
+                                    old.get(&old_attr)
+                                        .any(|old_value: &[u8]| {
+                                            let equal = old_value == *new_value;
+                                            equal
+                                        }) == false
+                                })
                                 .collect();
                             if add_values.len() == 1 && del_values.len() == 1 {
                                 // at least on eDirectory, replace works better on single-valued attributes
@@ -236,9 +237,7 @@ impl ModifyChangeRecord {
                             let op = ModifyChangeRecordOp{
                                 typ: ModifyChangeRecordOpType::Delete,
                                 attr: old_attr.to_string(),
-                                values: old.get(&old_attr).iter()
-                                    .map(Deref::deref)
-                                    .cloned()
+                                values: old.get(&old_attr)
                                     .collect(),
                             };
                             if op.values.len() != 0 {
@@ -250,9 +249,7 @@ impl ModifyChangeRecord {
                             let op = ModifyChangeRecordOp{
                                 typ: ModifyChangeRecordOpType::Add,
                                 attr: new_attr.to_string(),
-                                values: new.get(&new_attr).iter()
-                                    .map(Deref::deref)
-                                    .cloned()
+                                values: new.get(&new_attr)
                                     .collect(),
                             };
                             if op.values.len() != 0 {
@@ -266,9 +263,7 @@ impl ModifyChangeRecord {
                     let op = ModifyChangeRecordOp{
                         typ: ModifyChangeRecordOpType::Delete,
                         attr: old_attr.to_string(),
-                        values: old.get(&old_attr).iter()
-                            .map(Deref::deref)
-                            .cloned()
+                        values: old.get(&old_attr)
                             .collect(),
                     };
                     modify.ops.push(op);
@@ -278,9 +273,7 @@ impl ModifyChangeRecord {
                     let op = ModifyChangeRecordOp{
                         typ: ModifyChangeRecordOpType::Add,
                         attr: new_attr.to_string(),
-                        values: new.get(&new_attr).iter()
-                            .map(Deref::deref)
-                            .cloned()
+                        values: new.get(&new_attr)
                             .collect(),
                     };
                     modify.ops.push(op);
@@ -314,7 +307,7 @@ fn write_modify<W: Write>(w: &mut W, modify: &ModifyChangeRecord) -> std::io::Re
             },
         }
         for value in op.values.iter() {
-            write_attrval(&mut w, &op.attr, value.as_slice())?;
+            write_attrval(&mut w, &op.attr, value)?;
         }
         writeln!(w, "-")?;
     }

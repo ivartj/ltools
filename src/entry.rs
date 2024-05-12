@@ -25,38 +25,38 @@ where 'a: 'b
 const NO_VALUES: &'static Vec<EntryValue<'static>> = &vec![];
 
 impl<'a, 'b> Entry<'a, 'b> {
-    pub fn get(&self, attr: &str) -> &Vec<EntryValue<'b>> {
+    pub fn get(&self, attr: &str) -> impl Iterator<Item = &[u8]> {
         let attr = attr.to_ascii_lowercase();
         let values: Option<&Vec<Cow<Vec<u8>>>> = self.attr2values.get(&attr)
             .map(|values| values.borrow());
-        values.unwrap_or(NO_VALUES)
+        let values: &Vec<Cow<Vec<u8>>> = values.unwrap_or(NO_VALUES);
+        values.iter()
+            .map(|value: &Cow<Vec<u8>>| {
+                let value: &Vec<u8> = value.borrow();
+                let value: &[u8] = &value[..];
+                value
+            })
     }
 
-    pub fn get_one(&self, attr: &str) -> Option<&Vec<u8>> {
-        let values = self.get(&attr);
-        if values.len() != 1 {
-            None
+    pub fn get_one(&self, attr: &str) -> Option<&[u8]> {
+        if let Some(value) = self.get(&attr).next() {
+            Some(value.borrow())
         } else {
-            values.iter().next().map(Deref::deref)
+            None
         }
     }
 
     pub fn get_str(&self, attr: &str) -> impl Iterator<Item = Cow<str>> {
-        let values: &Vec<Cow<Vec<u8>>> = self.get(&attr);
         // lifetimes are confusing
-        let values: Vec<Cow<str>> = values.iter()
-            .map(|value: &Cow<Vec<u8>>| {
-                let value: &Vec<u8> = value.borrow();
-                let value: Cow<str> = String::from_utf8_lossy(&value[..]);
-                value
-            })
+        let values: Vec<Cow<str>> = self.get(&attr)
+            .map(String::from_utf8_lossy)
             .collect();
         values.into_iter()
     }
 
     pub fn get_one_str(&self, attr: &str) -> Option<Cow<str>> {
         if let Some(value) = self.get_one(&attr) {
-            Some(String::from_utf8_lossy(value.as_slice()))
+            Some(String::from_utf8_lossy(value))
         } else {
             None
         }
