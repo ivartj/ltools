@@ -22,7 +22,7 @@ where 'a: 'b
     attr2values: HashMap<String, Cow<'a, Vec<EntryValue<'b>>>>,
 }
 
-const NO_VALUES: &'static Vec<EntryValue<'static>> = &vec![];
+const NO_VALUES: &Vec<EntryValue<'static>> = &vec![];
 
 impl<'a, 'b> Entry<'a, 'b> {
     pub fn get(&self, attr: &str) -> impl Iterator<Item = &[u8]> {
@@ -39,7 +39,7 @@ impl<'a, 'b> Entry<'a, 'b> {
     }
 
     pub fn get_one(&self, attr: &str) -> Option<&[u8]> {
-        if let Some(value) = self.get(&attr).next() {
+        if let Some(value) = self.get(attr).next() {
             Some(value.borrow())
         } else {
             None
@@ -48,18 +48,15 @@ impl<'a, 'b> Entry<'a, 'b> {
 
     pub fn get_str(&self, attr: &str) -> impl Iterator<Item = Cow<str>> {
         // lifetimes are confusing
-        let values: Vec<Cow<str>> = self.get(&attr)
+        let values: Vec<Cow<str>> = self.get(attr)
             .map(String::from_utf8_lossy)
             .collect();
         values.into_iter()
     }
 
     pub fn get_one_str(&self, attr: &str) -> Option<Cow<str>> {
-        if let Some(value) = self.get_one(&attr) {
-            Some(String::from_utf8_lossy(value))
-        } else {
-            None
-        }
+        self.get_one(attr)
+            .map(String::from_utf8_lossy)
     }
 
     pub fn attributes(&self) -> impl Iterator<Item = &str>

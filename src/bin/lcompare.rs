@@ -41,7 +41,7 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         return Err("missing LDIF input parameter")
     }
 
-    return Ok(params);
+    Ok(params)
 }
 
 struct EntryBTreeMap(BTreeMap<String, OwnedEntry>);
@@ -87,9 +87,9 @@ fn write_attrval<W: Write>(w: &mut W, attr: &str, value: &[u8]) -> std::io::Resu
         write!(w, ":")?;
         let mut w = w;
         let mut base64 = EncodeWriter::new(&mut w);
-        base64.write(value)?;
+        base64.write_all(value)?;
         base64.flush()?;
-        write!(w, "\n")?;
+        writeln!(w)?;
     }
     Ok(())
 }
@@ -105,14 +105,14 @@ fn is_ldif_safe_string(value: &[u8]) -> bool {
         if matches!(c, b'\0' | b'\n' | b'\r' | b' ') {
             return false;
         }
-        if !(c <= 127) {
+        if c > 127 {
             return false;
         }
     }
     true
 }
 
-fn write_add<'a, 'b, W: Write>(w: &mut W, entry: &Entry<'a, 'b>) -> std::io::Result<()> {
+fn write_add<W: Write>(w: &mut W, entry: &Entry<'_, '_>) -> std::io::Result<()> {
     let dn: Cow<str> = match entry.get_one_str("dn") {
         Some(dn) => dn,
         None => return Ok(()),
@@ -124,15 +124,15 @@ fn write_add<'a, 'b, W: Write>(w: &mut W, entry: &Entry<'a, 'b>) -> std::io::Res
         if attr.to_lowercase() == "dn" {
             continue;
         }
-        for value in entry.get(&attr) {
-            write_attrval(&mut w, &attr, value)?;
+        for value in entry.get(attr) {
+            write_attrval(&mut w, attr, value)?;
         }
     }
-    writeln!(w, "")?;
+    writeln!(w)?;
     Ok(())
 }
 
-fn write_delete<'a, 'b, W: Write>(w: &mut W, entry: &Entry<'a, 'b>) -> std::io::Result<()> {
+fn write_delete<W: Write>(w: &mut W, entry: &Entry<'_, '_>) -> std::io::Result<()> {
     let dn: Cow<str> = match entry.get_one_str("dn") {
         Some(dn) => dn,
         None => return Ok(()),
@@ -140,7 +140,7 @@ fn write_delete<'a, 'b, W: Write>(w: &mut W, entry: &Entry<'a, 'b>) -> std::io::
     let mut w = w;
     write_attrval(&mut w, "dn", dn.as_bytes())?;
     writeln!(w, "changetype: delete")?;
-    writeln!(w, "")?;
+    writeln!(w)?;
     Ok(())
 }
 
@@ -186,22 +186,20 @@ impl<'z> ModifyChangeRecord<'z> {
                 (Some(old_attr), Some(new_attr)) => {
                     match old_attr.cmp(new_attr) {
                         Ordering::Equal => {
-                            let del_values: Vec<&[u8]> = old.get(&old_attr)
+                            let del_values: Vec<&[u8]> = old.get(old_attr)
                                 .filter(|old_value: &&[u8]| {
-                                    new.get(&new_attr)
+                                    !new.get(new_attr)
                                         .any(|new_value: &[u8]| {
-                                            let equal = new_value == *old_value;
-                                            equal
-                                        }) == false
+                                            new_value == *old_value
+                                        })
                                 })
                                 .collect();
-                            let add_values: Vec<&[u8]> = new.get(&new_attr)
+                            let add_values: Vec<&[u8]> = new.get(new_attr)
                                 .filter(|new_value: &&[u8]| {
-                                    old.get(&old_attr)
+                                    !old.get(old_attr)
                                         .any(|old_value: &[u8]| {
-                                            let equal = old_value == *new_value;
-                                            equal
-                                        }) == false
+                                            old_value == *new_value
+                                        })
                                 })
                                 .collect();
                             if add_values.len() == 1 && del_values.len() == 1 {
@@ -213,7 +211,7 @@ impl<'z> ModifyChangeRecord<'z> {
                                 };
                                 modify.ops.push(op);
                             } else {
-                                if del_values.len() != 0 {
+                                if del_values.is_empty() {
                                     let op = ModifyChangeRecordOp{
                                         typ: ModifyChangeRecordOpType::Delete,
                                         attr: old_attr.to_string(),
@@ -221,7 +219,7 @@ impl<'z> ModifyChangeRecord<'z> {
                                     };
                                     modify.ops.push(op);
                                 }
-                                if add_values.len() != 0 {
+                                if add_values.is_empty() {
                                     let op = ModifyChangeRecordOp{
                                         typ: ModifyChangeRecordOpType::Add,
                                         attr: new_attr.to_string(),
@@ -237,10 +235,10 @@ impl<'z> ModifyChangeRecord<'z> {
                             let op = ModifyChangeRecordOp{
                                 typ: ModifyChangeRecordOpType::Delete,
                                 attr: old_attr.to_string(),
-                                values: old.get(&old_attr)
+                                values: old.get(old_attr)
                                     .collect(),
                             };
-                            if op.values.len() != 0 {
+                            if op.values.is_empty() {
                                 modify.ops.push(op);
                             }
                             old_iter.next();
@@ -249,10 +247,10 @@ impl<'z> ModifyChangeRecord<'z> {
                             let op = ModifyChangeRecordOp{
                                 typ: ModifyChangeRecordOpType::Add,
                                 attr: new_attr.to_string(),
-                                values: new.get(&new_attr)
+                                values: new.get(new_attr)
                                     .collect(),
                             };
-                            if op.values.len() != 0 {
+                            if op.values.is_empty() {
                                 modify.ops.push(op);
                             }
                             new_iter.next();
@@ -263,7 +261,7 @@ impl<'z> ModifyChangeRecord<'z> {
                     let op = ModifyChangeRecordOp{
                         typ: ModifyChangeRecordOpType::Delete,
                         attr: old_attr.to_string(),
-                        values: old.get(&old_attr)
+                        values: old.get(old_attr)
                             .collect(),
                     };
                     modify.ops.push(op);
@@ -273,7 +271,7 @@ impl<'z> ModifyChangeRecord<'z> {
                     let op = ModifyChangeRecordOp{
                         typ: ModifyChangeRecordOpType::Add,
                         attr: new_attr.to_string(),
-                        values: new.get(&new_attr)
+                        values: new.get(new_attr)
                             .collect(),
                     };
                     modify.ops.push(op);
@@ -282,7 +280,7 @@ impl<'z> ModifyChangeRecord<'z> {
                 (None, None) => break,
             }
         }
-        if modify.ops.len() == 0 {
+        if modify.ops.is_empty() {
             None
         } else {
             Some(modify)
@@ -311,7 +309,7 @@ fn write_modify<W: Write>(w: &mut W, modify: &ModifyChangeRecord) -> std::io::Re
         }
         writeln!(w, "-")?;
     }
-    writeln!(w, "")?;
+    writeln!(w)?;
     Ok(())
 }
 
@@ -323,28 +321,28 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> 
             (Some((old_dn, old_entry)), Some((new_dn, new_entry))) => {
                 match old_dn.cmp(new_dn) {
                     Ordering::Equal => {
-                        if let Some(change) = ModifyChangeRecord::new(&old_entry, &new_entry) {
+                        if let Some(change) = ModifyChangeRecord::new(old_entry, new_entry) {
                             write_modify(&mut std::io::stdout(), &change)?;
                         }
                         old_iter.next();
                         new_iter.next();
                     },
                     Ordering::Less => {
-                        write_delete(&mut std::io::stdout(), &old_entry)?;
+                        write_delete(&mut std::io::stdout(), old_entry)?;
                         old_iter.next();
                     }
                     Ordering::Greater => {
-                        write_add(&mut std::io::stdout(), &new_entry)?;
+                        write_add(&mut std::io::stdout(), new_entry)?;
                         new_iter.next();
                     }
                 }
             },
             (Some((_, old_entry)), None) => {
-                write_delete(&mut std::io::stdout(), &old_entry)?;
+                write_delete(&mut std::io::stdout(), old_entry)?;
                 old_iter.next();
             },
             (None, Some((_, new_entry))) => {
-                write_add(&mut std::io::stdout(), &new_entry)?;
+                write_add(&mut std::io::stdout(), new_entry)?;
                 new_iter.next();
             },
             (None, None) => break,
@@ -368,17 +366,17 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
         },
         ("-", new) => {
             let mut old = std::io::stdin();
-            let mut new = std::fs::File::open(&new)?;
+            let mut new = std::fs::File::open(new)?;
             do_io(&mut old, &mut new)?;
         },
         (old, "-") => {
-            let mut old = std::fs::File::open(&old)?;
+            let mut old = std::fs::File::open(old)?;
             let mut new = std::io::stdin();
             do_io(&mut old, &mut new)?;
         }
         (old, new) => {
-            let mut old = std::fs::File::open(&old)?;
-            let mut new = std::fs::File::open(&new)?;
+            let mut old = std::fs::File::open(old)?;
+            let mut new = std::fs::File::open(new)?;
             do_io(&mut old, &mut new)?;
         },
     }

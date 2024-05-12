@@ -76,7 +76,7 @@ impl ValueFilter {
                 Cow::Owned(
                     values.deref().iter().map(|value| {
                         let mut buf: Vec<u8> = Vec::new();
-                        for byte in value.iter().copied() {
+                        for byte in value.iter() {
                             _ = write!(&mut buf, "{:02x}", byte);
                         }
                         Cow::Owned(buf)

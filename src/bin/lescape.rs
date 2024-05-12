@@ -28,14 +28,14 @@ fn lescape<W: Write>(mut dest: W, buf: &[u8]) -> std::io::Result<usize> {
     for (i, c) in buf.iter().copied().enumerate() {
         if !c.is_ascii() || matches!(c, b'\\' | b'*' | b'(' | b')' | b':' | b'\0') {
             if i > written {
-                dest.write(&buf[written..i])?;
+                dest.write_all(&buf[written..i])?;
             }
             write!(dest, "\\{c:02x}")?;
             written = i + 1;
         }
     }
     if written != buf.len() {
-        dest.write(&buf[written..])?;
+        dest.write_all(&buf[written..])?;
     }
     Ok(buf.len())
 }
@@ -102,7 +102,7 @@ impl<W: Write> Write for LUnescaper<W> {
             self.state = match (self.state, c) {
                 (LUnescaperState::Normal, b'\\') => {
                     if written < buf.len() {
-                        self.dest.write(&buf[written..i])?;
+                        self.dest.write_all(&buf[written..i])?;
                         written = i;
                     }
                     LUnescaperState::Backslash
@@ -124,16 +124,15 @@ impl<W: Write> Write for LUnescaper<W> {
                                                 format!("invalid hexadecimal digit 0x{d2:02x}")));
                     }
                     let byte = (hexdigit_to_lower_bits(d1) << 4) | hexdigit_to_lower_bits(d2);
-                    self.dest.write(&[byte])?;
+                    self.dest.write_all(&[byte])?;
                     written = i + 1;
                     LUnescaperState::Normal
                 },
             }
         }
-        if self.state == LUnescaperState::Normal {
-            if written < buf.len() {
-                self.dest.write(&buf[written..])?;
-            }
+        if self.state == LUnescaperState::Normal
+                && written < buf.len() {
+            self.dest.write_all(&buf[written..])?;
         }
         Ok(buf.len())
     }
