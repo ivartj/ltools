@@ -2,10 +2,10 @@ use std::io::{
     Write,
     Result,
 };
-use std::collections::HashMap;
 use crate::cartesian::cartesian_product;
 use crate::attrspec::AttrSpec;
 use crate::entry::{
+    Entry,
     EntryValue,
     WriteEntry,
 };
@@ -33,9 +33,9 @@ impl<W: Write> TsvEntryWriter<W> {
 }
 
 impl<W: Write> WriteEntry for TsvEntryWriter<W> {
-    fn write_entry(&mut self, attr2values: &HashMap<String, &Vec<EntryValue>>) -> Result<()> {
+    fn write_entry(&mut self, entry: &Entry) -> Result<()> {
         let attrvalues: Vec<Vec<EntryValue>> = self.attrspecs.iter()
-            .map(|attrspec| attrspec.filter_values(attr2values.get(&attrspec.attribute_lowercase).unwrap()).into_owned())
+            .map(|attrspec| attrspec.filter_values(entry.get(&attrspec.attribute_lowercase)).into_owned())
             .collect();
         for record in cartesian_product(&attrvalues) {
             for (i, value) in record.iter().enumerate() {
@@ -53,16 +53,15 @@ impl<W: Write> WriteEntry for TsvEntryWriter<W> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::borrow::Cow;
 
     #[test]
     fn test_case_difference() -> Result<()> {
         let attrspecs = vec![AttrSpec::parse("dn")?, AttrSpec::parse("CN")?];
         let mut output: Vec<u8> = Vec::new();
         let mut tsv_entry_writer = TsvEntryWriter::new(attrspecs, &mut output);
-        tsv_entry_writer.write_entry(&HashMap::from([
-            (String::from("cn"), &vec![Cow::Owned(Vec::from(&b"foo"[..]))]),
-            (String::from("dn"), &vec![Cow::Owned(Vec::from(&b"cn=foo"[..]))]),
+        tsv_entry_writer.write_entry(&Entry::from([
+            ("cn", b"foo".as_slice()),
+            ("dn", b"cn=foo".as_slice()),
         ]))?;
         Ok(())
     }

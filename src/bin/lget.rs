@@ -171,18 +171,18 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
             OutputFormat::Tsv => {
                 let mut entry_writer = TsvEntryWriter::new(attrspecs, stdout());
                 entry_writer.set_record_separator(delimiter);
-                let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                let token_writer = EntryTokenWriter::new_for_attributes(attributes, &mut entry_writer);
                 write_tokens(token_writer)?;
             },
             OutputFormat::Csv => {
                 let mut entry_writer = CsvEntryWriter::new(attrspecs, stdout());
-                let token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                let token_writer = EntryTokenWriter::new_for_attributes(attributes, &mut entry_writer);
                 write_tokens(token_writer)?;
             },
             OutputFormat::Json => {
                 let mut entry_writer = JsonEntryWriter::new(attrspecs, stdout());
                 entry_writer.set_record_separator(delimiter);
-                let mut token_writer = EntryTokenWriter::new(attributes, &mut entry_writer);
+                let mut token_writer = EntryTokenWriter::new_for_attributes(attributes, &mut entry_writer);
                 token_writer.set_ignore_entries_without_dn(true);
                 write_tokens(token_writer)?;
             },
