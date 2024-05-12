@@ -175,8 +175,8 @@ impl<'z> ModifyChangeRecord<'z> {
             dn: dn.into_owned(),
             ops: Vec::new(),
         };
-        let mut old_attrs: Vec<Cow<str>> = old.attributes().collect();
-        let mut new_attrs: Vec<Cow<str>> = new.attributes().collect();
+        let mut old_attrs: Vec<&str> = old.attributes().collect();
+        let mut new_attrs: Vec<&str> = new.attributes().collect();
         old_attrs.sort();
         new_attrs.sort();
         let mut old_iter = old_attrs.iter().peekable();

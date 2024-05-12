@@ -62,10 +62,11 @@ impl<'a, 'b> Entry<'a, 'b> {
         }
     }
 
-    pub fn attributes(&self) -> impl Iterator<Item = Cow<str>>
+    pub fn attributes(&self) -> impl Iterator<Item = &str>
     {
         let keys: Keys<String, Cow<'a, Vec<EntryValue<'b>>>> = self.attr2values.keys();
-        let keys: Vec<Cow<str>> = keys.cloned().map(|key| Cow::Owned(key)).collect(); // collecting into a Vec until we one day figure out how to deal with lifetime issues
+        let keys: Vec<&str> = keys.map(|value| value.borrow())
+            .collect();
         keys.into_iter()
     }
 }
