@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::collections::hash_map::Keys;
 use std::borrow::{ Cow, Borrow };
 use std::io::{ Result, Write };
 use std::ops::Deref;
@@ -61,10 +60,13 @@ impl<'a, 'b> Entry<'a, 'b> {
 
     pub fn attributes(&self) -> impl Iterator<Item = &str>
     {
-        let keys: Keys<String, Cow<'a, Vec<EntryValue<'b>>>> = self.attr2values.keys();
-        let keys: Vec<&str> = keys.map(|value| value.borrow())
+        let attrs: Vec<&str> = self.attr2values.iter()
+            .filter(|(_, values)| {
+                !values.is_empty()
+            })
+            .map(|(attr, _)| attr.borrow())
             .collect();
-        keys.into_iter()
+        attrs.into_iter()
     }
 }
 

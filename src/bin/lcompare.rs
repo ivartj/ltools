@@ -211,7 +211,7 @@ impl<'z> ModifyChangeRecord<'z> {
                                 };
                                 modify.ops.push(op);
                             } else {
-                                if del_values.is_empty() {
+                                if !del_values.is_empty() {
                                     let op = ModifyChangeRecordOp{
                                         typ: ModifyChangeRecordOpType::Delete,
                                         attr: old_attr.to_string(),
@@ -219,7 +219,7 @@ impl<'z> ModifyChangeRecord<'z> {
                                     };
                                     modify.ops.push(op);
                                 }
-                                if add_values.is_empty() {
+                                if !add_values.is_empty() {
                                     let op = ModifyChangeRecordOp{
                                         typ: ModifyChangeRecordOpType::Add,
                                         attr: new_attr.to_string(),
@@ -238,7 +238,7 @@ impl<'z> ModifyChangeRecord<'z> {
                                 values: old.get(old_attr)
                                     .collect(),
                             };
-                            if op.values.is_empty() {
+                            if !op.values.is_empty() {
                                 modify.ops.push(op);
                             }
                             old_iter.next();
@@ -250,7 +250,7 @@ impl<'z> ModifyChangeRecord<'z> {
                                 values: new.get(new_attr)
                                     .collect(),
                             };
-                            if op.values.is_empty() {
+                            if !op.values.is_empty() {
                                 modify.ops.push(op);
                             }
                             new_iter.next();
