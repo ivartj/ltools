@@ -62,7 +62,7 @@ impl WriteEntry for EntryBTreeMap {
                 return Ok(());
             }
         };
-        self.0.insert(dn.into_owned(), entry.into());
+        self.0.insert(dn.to_lowercase(), entry.into());
         Ok(())
     }
 }
@@ -175,8 +175,8 @@ impl<'z> ModifyChangeRecord<'z> {
             dn: dn.into_owned(),
             ops: Vec::new(),
         };
-        let mut old_attrs: Vec<&str> = old.attributes().collect();
-        let mut new_attrs: Vec<&str> = new.attributes().collect();
+        let mut old_attrs: Vec<&str> = old.attributes().filter(|attr| attr != &"dn").collect();
+        let mut new_attrs: Vec<&str> = new.attributes().filter(|attr| attr != &"dn").collect();
         old_attrs.sort();
         new_attrs.sort();
         let mut old_iter = old_attrs.iter().peekable();
