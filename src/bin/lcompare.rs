@@ -1,4 +1,4 @@
-use clap::{arg, command};
+use clap::{arg, command, ArgAction};
 use ltools::crstrip::CrStripper;
 use ltools::lexer::Lexer;
 use ltools::loc::WriteLocWrapper;
@@ -14,18 +14,24 @@ use std::ops::Deref;
 struct Parameters {
     old: String,
     new: String,
+    invert: bool,
+    attrs: Vec<String>, // should be lowercase
 }
 
 fn parse_arguments() -> Result<Parameters, &'static str> {
     let mut params = Parameters{
         old: "-".into(),
         new: "-".into(),
+        attrs: Vec::new(),
+        invert: false,
     };
 
     let matches = command!("lcompare")
         .disable_colored_help(true)
         .arg(arg!(<OLD> "The LDIF entry records from which the changerecords transition"))
         .arg(arg!(<NEW> "The LDIF entry records to which the changerecords transition"))
+        .arg(arg!([ATTRIBUTES] ... "In modify changerecords, limit changes to attributes in ATTRIBUTES, or if the -v option is given, every attribute except for those in ATTRIBUTES"))
+        .arg(arg!(invert: -v --invert "In modify changerecords, compare based on every attribute except for those in ATTRIBUTES").action(ArgAction::SetTrue))
         .get_matches();
 
     if let Some(old) = matches.get_one::<String>("OLD") {
@@ -41,6 +47,11 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         // shouldn't happen when the argument is required
         return Err("missing LDIF input parameter")
     }
+
+    params.attrs = matches.get_many::<String>("ATTRIBUTES")
+        .map(|iter| iter.map(|attr| attr.to_lowercase()).collect())
+        .unwrap_or(Vec::new());
+    params.invert = matches.get_flag("invert") != params.attrs.is_empty();
 
     Ok(params)
 }
@@ -187,7 +198,7 @@ struct ModifyChangeRecord<'a> {
 }
 
 impl<'z> ModifyChangeRecord<'z> {
-    fn new<'a, 'b, 'c, 'd>(old: &'z Entry<'a, 'b>, new: &'z Entry<'c, 'd>) -> Option<ModifyChangeRecord<'z>>
+    fn new<'a, 'b, 'c, 'd>(old: &'z Entry<'a, 'b>, new: &'z Entry<'c, 'd>, attrs: &Vec<String>, invert: bool) -> Option<ModifyChangeRecord<'z>>
     where
         'b: 'z,
         'd: 'z
@@ -200,8 +211,14 @@ impl<'z> ModifyChangeRecord<'z> {
             dn: dn.into_owned(),
             ops: Vec::new(),
         };
-        let mut old_attrs: Vec<&str> = old.attributes().filter(|attr| attr != &"dn").collect();
-        let mut new_attrs: Vec<&str> = new.attributes().filter(|attr| attr != &"dn").collect();
+        let mut old_attrs: Vec<&str> = old.attributes()
+            .filter(|attr| attr != &"dn")
+            .filter(|attr| invert != attrs.iter().any(|arg_attr| arg_attr == *attr))
+            .collect();
+        let mut new_attrs: Vec<&str> = new.attributes()
+            .filter(|attr| attr != &"dn")
+            .filter(|attr| invert != attrs.iter().any(|arg_attr| arg_attr == *attr))
+            .collect();
         old_attrs.sort();
         new_attrs.sort();
         let mut old_iter = old_attrs.iter().peekable();
@@ -338,7 +355,7 @@ fn write_modify<W: Write>(w: &mut W, modify: &ModifyChangeRecord) -> std::io::Re
     Ok(())
 }
 
-fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> std::io::Result<()> {
+fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap, params: &Parameters) -> std::io::Result<()> {
     let mut old_iter = old_entries.0.iter().peekable();
     let mut new_iter = new_entries.0.iter().peekable();
     let mut deferred_deletes: Vec<Cow<str>> = Vec::new();
@@ -347,7 +364,7 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> 
             (Some((old_dn, old_entry)), Some((new_dn, new_entry))) => {
                 match old_dn.cmp(new_dn) {
                     Ordering::Equal => {
-                        if let Some(change) = ModifyChangeRecord::new(old_entry, new_entry) {
+                        if let Some(change) = ModifyChangeRecord::new(old_entry, new_entry, &params.attrs, params.invert) {
                             write_modify(&mut std::io::stdout(), &change)?;
                         }
                         old_iter.next();
@@ -384,10 +401,10 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> 
     Ok(())
 }
 
-fn do_io<Old: Read, New: Read>(old: &mut Old, new: &mut New) -> std::io::Result<()> {
+fn do_io<Old: Read, New: Read>(old: &mut Old, new: &mut New, params: &Parameters) -> std::io::Result<()> {
     let old_entries = read_entries(old)?;
     let new_entries = read_entries(new)?;
-    compare_entries(&old_entries, &new_entries)?;
+    compare_entries(&old_entries, &new_entries, params)?;
     Ok(())
 }
 
@@ -400,17 +417,17 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
         ("-", new) => {
             let mut old = std::io::stdin();
             let mut new = std::fs::File::open(new)?;
-            do_io(&mut old, &mut new)?;
+            do_io(&mut old, &mut new, &params)?;
         },
         (old, "-") => {
             let mut old = std::fs::File::open(old)?;
             let mut new = std::io::stdin();
-            do_io(&mut old, &mut new)?;
+            do_io(&mut old, &mut new, &params)?;
         }
         (old, new) => {
             let mut old = std::fs::File::open(old)?;
             let mut new = std::fs::File::open(new)?;
-            do_io(&mut old, &mut new)?;
+            do_io(&mut old, &mut new, &params)?;
         },
     }
     Ok(())
