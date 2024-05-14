@@ -8,7 +8,8 @@ use ltools::base64::EncodeWriter;
 use std::io::{copy, Read, Write};
 use std::collections::BTreeMap;
 use std::borrow::Cow;
-use std::cmp::Ordering;
+use std::cmp::{Ord, Ordering};
+use std::ops::Deref;
 
 struct Parameters {
     old: String,
@@ -44,7 +45,35 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
     Ok(params)
 }
 
-struct EntryBTreeMap(BTreeMap<String, OwnedEntry>);
+#[derive(PartialEq, Eq)]
+struct DnKey(String);
+
+impl Deref for DnKey {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Ord for DnKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // we want shorter ancestor DNs to be ordered before longer descendant DNs
+        let cmp = self.0.len().cmp(&other.0.len());
+        match cmp {
+            Ordering::Equal => self.0.cmp(&other.0),
+            _ => cmp,
+        }
+    }
+}
+
+impl PartialOrd for DnKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+struct EntryBTreeMap(BTreeMap<DnKey, OwnedEntry>);
 
 impl EntryBTreeMap {
     fn new() -> EntryBTreeMap {
@@ -62,7 +91,7 @@ impl WriteEntry for EntryBTreeMap {
                 return Ok(());
             }
         };
-        self.0.insert(dn.to_lowercase(), entry.into());
+        self.0.insert(DnKey(dn.to_lowercase()), entry.into());
         Ok(())
     }
 }
@@ -132,11 +161,7 @@ fn write_add<W: Write>(w: &mut W, entry: &Entry<'_, '_>) -> std::io::Result<()> 
     Ok(())
 }
 
-fn write_delete<W: Write>(w: &mut W, entry: &Entry<'_, '_>) -> std::io::Result<()> {
-    let dn: Cow<str> = match entry.get_one_str("dn") {
-        Some(dn) => dn,
-        None => return Ok(()),
-    };
+fn write_delete<W: Write>(w: &mut W, dn: &str) -> std::io::Result<()> {
     let mut w = w;
     write_attrval(&mut w, "dn", dn.as_bytes())?;
     writeln!(w, "changetype: delete")?;
@@ -316,6 +341,7 @@ fn write_modify<W: Write>(w: &mut W, modify: &ModifyChangeRecord) -> std::io::Re
 fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> std::io::Result<()> {
     let mut old_iter = old_entries.0.iter().peekable();
     let mut new_iter = new_entries.0.iter().peekable();
+    let mut deferred_deletes: Vec<Cow<str>> = Vec::new();
     loop {
         match (old_iter.peek(), new_iter.peek()) {
             (Some((old_dn, old_entry)), Some((new_dn, new_entry))) => {
@@ -328,7 +354,9 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> 
                         new_iter.next();
                     },
                     Ordering::Less => {
-                        write_delete(&mut std::io::stdout(), old_entry)?;
+                        if let Some(dn) = old_entry.get_one_str("dn") {
+                            deferred_deletes.push(dn);
+                        }
                         old_iter.next();
                     }
                     Ordering::Greater => {
@@ -338,7 +366,9 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> 
                 }
             },
             (Some((_, old_entry)), None) => {
-                write_delete(&mut std::io::stdout(), old_entry)?;
+                if let Some(dn) = old_entry.get_one_str("dn") {
+                    deferred_deletes.push(dn);
+                }
                 old_iter.next();
             },
             (None, Some((_, new_entry))) => {
@@ -347,6 +377,9 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap) -> 
             },
             (None, None) => break,
         }
+    }
+    for delete in deferred_deletes.iter().rev() {
+        write_delete(&mut std::io::stdout(), delete)?;
     }
     Ok(())
 }
