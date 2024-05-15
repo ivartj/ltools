@@ -30,8 +30,8 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         .disable_colored_help(true)
         .arg(arg!(<OLD> "The LDIF entry records from which the changerecords transition"))
         .arg(arg!(<NEW> "The LDIF entry records to which the changerecords transition"))
-        .arg(arg!([ATTRIBUTES] ... "In modify changerecords, limit changes to attributes in ATTRIBUTES, or if the -v option is given, every attribute except for those in ATTRIBUTES"))
-        .arg(arg!(invert: -v --invert "In modify changerecords, compare based on every attribute except for those in ATTRIBUTES").action(ArgAction::SetTrue))
+        .arg(arg!([ATTRIBUTES] ... "In modify and add changerecords, limit changes to attributes in ATTRIBUTES, or if the -v option is given, every attribute except for those in ATTRIBUTES"))
+        .arg(arg!(invert: -v --invert "In modify and add changerecords, compare based on every attribute except for those in ATTRIBUTES").action(ArgAction::SetTrue))
         .get_matches();
 
     if let Some(old) = matches.get_one::<String>("OLD") {
@@ -152,7 +152,7 @@ fn is_ldif_safe_string(value: &[u8]) -> bool {
     true
 }
 
-fn write_add<W: Write>(w: &mut W, entry: &Entry<'_, '_>) -> std::io::Result<()> {
+fn write_add<W: Write>(w: &mut W, entry: &Entry<'_, '_>, attrs: &[String], invert: bool) -> std::io::Result<()> {
     let dn: Cow<str> = match entry.get_one_str("dn") {
         Some(dn) => dn,
         None => return Ok(()),
@@ -160,7 +160,9 @@ fn write_add<W: Write>(w: &mut W, entry: &Entry<'_, '_>) -> std::io::Result<()> 
     let mut w = w;
     write_attrval(&mut w, "dn", dn.as_bytes())?;
     writeln!(w, "changetype: add")?;
-    for attr in entry.attributes() {
+    for attr in entry.attributes()
+        .filter(|attr| invert != attrs.iter().any(|arg_attr| attr == arg_attr))
+    {
         if attr.to_lowercase() == "dn" {
             continue;
         }
@@ -198,7 +200,7 @@ struct ModifyChangeRecord<'a> {
 }
 
 impl<'z> ModifyChangeRecord<'z> {
-    fn new<'a, 'b, 'c, 'd>(old: &'z Entry<'a, 'b>, new: &'z Entry<'c, 'd>, attrs: &Vec<String>, invert: bool) -> Option<ModifyChangeRecord<'z>>
+    fn new<'a, 'b, 'c, 'd>(old: &'z Entry<'a, 'b>, new: &'z Entry<'c, 'd>, attrs: &[String], invert: bool) -> Option<ModifyChangeRecord<'z>>
     where
         'b: 'z,
         'd: 'z
@@ -377,7 +379,7 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap, par
                         old_iter.next();
                     }
                     Ordering::Greater => {
-                        write_add(&mut std::io::stdout(), new_entry)?;
+                        write_add(&mut std::io::stdout(), new_entry, &params.attrs, params.invert)?;
                         new_iter.next();
                     }
                 }
@@ -389,7 +391,7 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap, par
                 old_iter.next();
             },
             (None, Some((_, new_entry))) => {
-                write_add(&mut std::io::stdout(), new_entry)?;
+                write_add(&mut std::io::stdout(), new_entry, &params.attrs, params.invert)?;
                 new_iter.next();
             },
             (None, None) => break,
