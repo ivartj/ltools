@@ -16,6 +16,7 @@ struct Parameters {
     old: String,
     new: String,
     invert: bool,
+    force: bool,
     attrs: Vec<String>,       // should be lowercase
     defer_attrs: Vec<String>, // should be lowercase
 }
@@ -26,6 +27,7 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         new: "-".into(),
         attrs: Vec::new(),
         invert: false,
+        force: false,
         defer_attrs: Vec::new(),
     };
 
@@ -34,11 +36,12 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         .arg(arg!(<OLD> "The LDIF entry records from which the changerecords transition"))
         .arg(arg!(<NEW> "The LDIF entry records to which the changerecords transition"))
         .arg(arg!([ATTRIBUTES] ... "In modify and add changerecords, limit changes to attributes in ATTRIBUTES, or if the -v option is given, every attribute except for those in ATTRIBUTES"))
-        .arg(arg!(invert: -v --invert "In modify and add changerecords, compare based on every attribute except for those in ATTRIBUTES").action(ArgAction::SetTrue))
-        .arg(arg!(defer: --defer <ATTRIBUTE> "Defer addition and modification of the given attribute. This is useful to avoid referential integrity errors)")
+        .arg(arg!(defer: --defer <ATTRIBUTE> "Defer addition and modification of the given attribute. This is useful to avoid referential integrity errors.")
             .required(false)
             .action(ArgAction::Append)
         )
+        .arg(arg!(invert: -v --invert "In modify and add changerecords, compare based on every attribute except for those in ATTRIBUTES").action(ArgAction::SetTrue))
+        .arg(arg!(force: -f --force "Allow lcompare to output delete changerecords").action(ArgAction::SetTrue))
         .get_matches();
 
     if let Some(old) = matches.get_one::<String>("OLD") {
@@ -66,6 +69,8 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
     if params.invert {
         params.attrs.extend(params.defer_attrs.iter().cloned());
     }
+
+    params.force = matches.get_flag("force");
 
     Ok(params)
 }
@@ -399,7 +404,11 @@ fn compare_entries(
             },
             Diff::Delete((_, old_entry)) => {
                 if let Some(dn) = old_entry.get_one_str("dn") {
-                    deferred_deletes.push(dn);
+                    if params.force {
+                        deferred_deletes.push(dn);
+                    } else {
+                        eprintln!("lcompare: no --force option given, not writing delete changerecord for {}", dn);
+                    }
                 }
             },
             Diff::Modify((_, old_entry), (_, new_entry)) => {
@@ -427,40 +436,6 @@ fn compare_entries(
     }
     for delete in deferred_deletes.iter().rev() {
         write_delete(&mut std::io::stdout(), delete)?;
-    }
-    Ok(())
-}
-
-fn do_io<Old: Read, New: Read>(
-    old: &mut Old,
-    new: &mut New,
-    params: &Parameters,
-) -> std::io::Result<()> {
-    let old_entries = read_entries(old)?;
-    let new_entries = read_entries(new)?;
-    compare_entries(&old_entries, &new_entries, params)?;
-    Ok(())
-}
-
-fn get_result() -> Result<(), Box<dyn std::error::Error>> {
-    let params = parse_arguments()?;
-    match (&params.old[..], &params.new[..]) {
-        ("-", "-") => return Err("both inputs can't be standard input".into()),
-        ("-", new) => {
-            let mut old = std::io::stdin();
-            let mut new = std::fs::File::open(new)?;
-            do_io(&mut old, &mut new, &params)?;
-        }
-        (old, "-") => {
-            let mut old = std::fs::File::open(old)?;
-            let mut new = std::io::stdin();
-            do_io(&mut old, &mut new, &params)?;
-        }
-        (old, new) => {
-            let mut old = std::fs::File::open(old)?;
-            let mut new = std::fs::File::open(new)?;
-            do_io(&mut old, &mut new, &params)?;
-        }
     }
     Ok(())
 }
@@ -526,6 +501,41 @@ where T: Copy,
         }
     }
 }
+
+fn do_io<Old: Read, New: Read>(
+    old: &mut Old,
+    new: &mut New,
+    params: &Parameters,
+) -> std::io::Result<()> {
+    let old_entries = read_entries(old)?;
+    let new_entries = read_entries(new)?;
+    compare_entries(&old_entries, &new_entries, params)?;
+    Ok(())
+}
+
+fn get_result() -> Result<(), Box<dyn std::error::Error>> {
+    let params = parse_arguments()?;
+    match (&params.old[..], &params.new[..]) {
+        ("-", "-") => return Err("both inputs can't be standard input".into()),
+        ("-", new) => {
+            let mut old = std::io::stdin();
+            let mut new = std::fs::File::open(new)?;
+            do_io(&mut old, &mut new, &params)?;
+        }
+        (old, "-") => {
+            let mut old = std::fs::File::open(old)?;
+            let mut new = std::io::stdin();
+            do_io(&mut old, &mut new, &params)?;
+        }
+        (old, new) => {
+            let mut old = std::fs::File::open(old)?;
+            let mut new = std::fs::File::open(new)?;
+            do_io(&mut old, &mut new, &params)?;
+        }
+    }
+    Ok(())
+}
+
 
 fn main() {
     let result = get_result();
