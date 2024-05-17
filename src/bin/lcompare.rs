@@ -35,6 +35,10 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         .arg(arg!(<NEW> "The LDIF entry records to which the changerecords transition"))
         .arg(arg!([ATTRIBUTES] ... "In modify and add changerecords, limit changes to attributes in ATTRIBUTES, or if the -v option is given, every attribute except for those in ATTRIBUTES"))
         .arg(arg!(invert: -v --invert "In modify and add changerecords, compare based on every attribute except for those in ATTRIBUTES").action(ArgAction::SetTrue))
+        .arg(arg!(defer: --defer <ATTRIBUTE> "Defer addition and modification of the given attribute. This is useful to avoid referential integrity errors)")
+            .required(false)
+            .action(ArgAction::Append)
+        )
         .get_matches();
 
     if let Some(old) = matches.get_one::<String>("OLD") {
@@ -51,19 +55,17 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         return Err("missing LDIF input parameter");
     }
 
-    (params.defer_attrs, params.attrs) = matches
-        .get_many::<String>("ATTRIBUTES")
-        .map(|attrs| {
-            attrs
-                .map(|attr| attr.to_lowercase())
-                .partition(|attr| attr.ends_with("#defer"))
-        })
-        .unwrap_or((Vec::new(), Vec::new()));
-    for attr in params.defer_attrs.iter_mut() {
-        *attr = attr.strip_suffix("#defer").unwrap_or(attr).to_string();
+    params.attrs = matches.get_many::<String>("ATTRIBUTES")
+        .map(|attrs| attrs.map(|attr| attr.to_lowercase()).collect())
+        .unwrap_or_else(|| Vec::new());
+    params.invert = matches.get_flag("invert") != params.attrs.is_empty();
+
+    params.defer_attrs = matches.get_many::<String>("defer")
+        .map(|attrs| attrs.map(|attr| attr.to_lowercase()).collect())
+        .unwrap_or_else(|| Vec::new());
+    if params.invert {
+        params.attrs.extend(params.defer_attrs.iter().cloned());
     }
-    params.invert =
-        matches.get_flag("invert") != (params.attrs.is_empty() && params.defer_attrs.is_empty());
 
     Ok(params)
 }
