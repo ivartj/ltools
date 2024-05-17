@@ -1,29 +1,32 @@
 use clap::{arg, command, ArgAction};
+use ltools::base64::EncodeWriter;
 use ltools::crstrip::CrStripper;
+use ltools::entry::{Entry, EntryTokenWriter, OwnedEntry, WriteEntry};
 use ltools::lexer::Lexer;
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
-use ltools::entry::{Entry, OwnedEntry, WriteEntry, EntryTokenWriter};
-use ltools::base64::EncodeWriter;
-use std::io::{copy, Read, Write};
-use std::collections::BTreeMap;
 use std::borrow::Cow;
 use std::cmp::{Ord, Ordering};
+use std::collections::BTreeMap;
+use std::io::{copy, Read, Write};
 use std::ops::Deref;
+use std::iter::Peekable;
 
 struct Parameters {
     old: String,
     new: String,
     invert: bool,
-    attrs: Vec<String>, // should be lowercase
+    attrs: Vec<String>,       // should be lowercase
+    defer_attrs: Vec<String>, // should be lowercase
 }
 
 fn parse_arguments() -> Result<Parameters, &'static str> {
-    let mut params = Parameters{
+    let mut params = Parameters {
         old: "-".into(),
         new: "-".into(),
         attrs: Vec::new(),
         invert: false,
+        defer_attrs: Vec::new(),
     };
 
     let matches = command!("lcompare")
@@ -38,20 +41,29 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
         params.old = old.clone();
     } else {
         // shouldn't happen when the argument is required
-        return Err("missing LDIF input parameter")
+        return Err("missing LDIF input parameter");
     }
 
     if let Some(new) = matches.get_one::<String>("NEW") {
         params.new = new.clone();
     } else {
         // shouldn't happen when the argument is required
-        return Err("missing LDIF input parameter")
+        return Err("missing LDIF input parameter");
     }
 
-    params.attrs = matches.get_many::<String>("ATTRIBUTES")
-        .map(|iter| iter.map(|attr| attr.to_lowercase()).collect())
-        .unwrap_or(Vec::new());
-    params.invert = matches.get_flag("invert") != params.attrs.is_empty();
+    (params.defer_attrs, params.attrs) = matches
+        .get_many::<String>("ATTRIBUTES")
+        .map(|attrs| {
+            attrs
+                .map(|attr| attr.to_lowercase())
+                .partition(|attr| attr.ends_with("#defer"))
+        })
+        .unwrap_or((Vec::new(), Vec::new()));
+    for attr in params.defer_attrs.iter_mut() {
+        *attr = attr.strip_suffix("#defer").unwrap_or(attr).to_string();
+    }
+    params.invert =
+        matches.get_flag("invert") != (params.attrs.is_empty() && params.defer_attrs.is_empty());
 
     Ok(params)
 }
@@ -152,7 +164,12 @@ fn is_ldif_safe_string(value: &[u8]) -> bool {
     true
 }
 
-fn write_add<W: Write>(w: &mut W, entry: &Entry<'_, '_>, attrs: &[String], invert: bool) -> std::io::Result<()> {
+fn write_add<W: Write>(
+    w: &mut W,
+    entry: &Entry<'_, '_>,
+    attrs: &[String],
+    invert: bool,
+) -> std::io::Result<()> {
     let dn: Cow<str> = match entry.get_one_str("dn") {
         Some(dn) => dn,
         None => return Ok(()),
@@ -160,7 +177,8 @@ fn write_add<W: Write>(w: &mut W, entry: &Entry<'_, '_>, attrs: &[String], inver
     let mut w = w;
     write_attrval(&mut w, "dn", dn.as_bytes())?;
     writeln!(w, "changetype: add")?;
-    for attr in entry.attributes()
+    for attr in entry
+        .attributes()
         .filter(|attr| invert != attrs.iter().any(|arg_attr| attr == arg_attr))
     {
         if attr.to_lowercase() == "dn" {
@@ -200,128 +218,121 @@ struct ModifyChangeRecord<'a> {
 }
 
 impl<'z> ModifyChangeRecord<'z> {
-    fn new<'a, 'b, 'c, 'd>(old: &'z Entry<'a, 'b>, new: &'z Entry<'c, 'd>, attrs: &[String], invert: bool) -> Option<ModifyChangeRecord<'z>>
+    fn new<'a, 'b, 'c, 'd>(
+        old: Option<&'z Entry<'a, 'b>>,
+        new: &'z Entry<'c, 'd>,
+        attrs: &[String],
+        invert: bool,
+    ) -> Option<ModifyChangeRecord<'z>>
     where
         'b: 'z,
-        'd: 'z
+        'd: 'z,
     {
-        let dn: Cow<str> = match old.get_one_str("dn") {
+        let dn: Cow<str> = match new.get_one_str("dn") {
             Some(dn) => dn,
             None => return None,
         };
-        let mut modify = ModifyChangeRecord{
+        let mut modify = ModifyChangeRecord {
             dn: dn.into_owned(),
             ops: Vec::new(),
         };
-        let mut old_attrs: Vec<&str> = old.attributes()
+
+        let mut old_attrs: Vec<&str> = match old {
+            Some(old) => old
+                .attributes()
+                .filter(|attr| attr != &"dn")
+                .filter(|attr| invert != attrs.iter().any(|arg_attr| arg_attr == *attr))
+                .collect(),
+            None => Vec::new(),
+        };
+        let mut new_attrs: Vec<&str> = new
+            .attributes()
             .filter(|attr| attr != &"dn")
             .filter(|attr| invert != attrs.iter().any(|arg_attr| arg_attr == *attr))
             .collect();
-        let mut new_attrs: Vec<&str> = new.attributes()
-            .filter(|attr| attr != &"dn")
-            .filter(|attr| invert != attrs.iter().any(|arg_attr| arg_attr == *attr))
-            .collect();
+
         old_attrs.sort();
         new_attrs.sort();
-        let mut old_iter = old_attrs.iter().peekable();
-        let mut new_iter = new_attrs.iter().peekable();
-        loop {
-            match (old_iter.peek(), new_iter.peek()) {
-                (Some(old_attr), Some(new_attr)) => {
-                    match old_attr.cmp(new_attr) {
-                        Ordering::Equal => {
-                            let del_values: Vec<&[u8]> = old.get(old_attr)
-                                .filter(|old_value: &&[u8]| {
-                                    !new.get(new_attr)
-                                        .any(|new_value: &[u8]| {
-                                            new_value == *old_value
-                                        })
-                                })
-                                .collect();
-                            let add_values: Vec<&[u8]> = new.get(new_attr)
-                                .filter(|new_value: &&[u8]| {
-                                    !old.get(old_attr)
-                                        .any(|old_value: &[u8]| {
-                                            old_value == *new_value
-                                        })
-                                })
-                                .collect();
-                            if add_values.len() == 1 && del_values.len() == 1 {
-                                // at least on eDirectory, replace works better on single-valued attributes
-                                let op = ModifyChangeRecordOp{
-                                    typ: ModifyChangeRecordOpType::Replace,
-                                    attr: new_attr.to_string(),
-                                    values: add_values,
-                                };
-                                modify.ops.push(op);
-                            } else {
-                                if !del_values.is_empty() {
-                                    let op = ModifyChangeRecordOp{
-                                        typ: ModifyChangeRecordOpType::Delete,
-                                        attr: old_attr.to_string(),
-                                        values: del_values,
-                                    };
-                                    modify.ops.push(op);
-                                }
-                                if !add_values.is_empty() {
-                                    let op = ModifyChangeRecordOp{
-                                        typ: ModifyChangeRecordOpType::Add,
-                                        attr: new_attr.to_string(),
-                                        values: add_values,
-                                    };
-                                    modify.ops.push(op);
-                                }
-                            }
-                            old_iter.next();
-                            new_iter.next();
-                        },
-                        Ordering::Less => {
-                            let op = ModifyChangeRecordOp{
-                                typ: ModifyChangeRecordOpType::Delete,
-                                attr: old_attr.to_string(),
-                                values: old.get(old_attr)
-                                    .collect(),
-                            };
-                            if !op.values.is_empty() {
-                                modify.ops.push(op);
-                            }
-                            old_iter.next();
-                        },
-                        Ordering::Greater => {
-                            let op = ModifyChangeRecordOp{
-                                typ: ModifyChangeRecordOpType::Add,
-                                attr: new_attr.to_string(),
-                                values: new.get(new_attr)
-                                    .collect(),
-                            };
-                            if !op.values.is_empty() {
-                                modify.ops.push(op);
-                            }
-                            new_iter.next();
-                        },
-                    }
-                },
-                (Some(old_attr), None) => {
-                    let op = ModifyChangeRecordOp{
-                        typ: ModifyChangeRecordOpType::Delete,
-                        attr: old_attr.to_string(),
-                        values: old.get(old_attr)
-                            .collect(),
-                    };
-                    modify.ops.push(op);
-                    old_iter.next();
-                },
-                (None, Some(new_attr)) => {
-                    let op = ModifyChangeRecordOp{
+        let comparison = SortedComparison{
+            old_iter: old_attrs.iter().peekable(),
+            new_iter: new_attrs.iter().peekable(),
+            compare_items: Ord::cmp,
+        };
+        for op in comparison {
+            match op {
+                Diff::Add(new_attr) => {
+                    let op = ModifyChangeRecordOp {
                         typ: ModifyChangeRecordOpType::Add,
                         attr: new_attr.to_string(),
-                        values: new.get(new_attr)
-                            .collect(),
+                        values: new.get(new_attr).collect(),
                     };
-                    modify.ops.push(op);
-                    new_iter.next();
+                    if !op.values.is_empty() {
+                        modify.ops.push(op);
+                    }
                 },
-                (None, None) => break,
+                Diff::Delete(old_attr) => {
+                    if let Some(old) = old {
+                        let op = ModifyChangeRecordOp {
+                            typ: ModifyChangeRecordOpType::Delete,
+                            attr: old_attr.to_string(),
+                            values: old.get(old_attr).collect(),
+                        };
+                        if !op.values.is_empty() {
+                            modify.ops.push(op);
+                        }
+                    }
+                },
+                Diff::Modify(old_attr, new_attr) => {
+                    let del_values: Vec<&[u8]> = {
+                        if let Some(old) = old {
+                            old.get(old_attr)
+                                .filter(|old_value: &&[u8]| {
+                                    !new.get(new_attr)
+                                        .any(|new_value: &[u8]| new_value == *old_value)
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    };
+                    let add_values: Vec<&[u8]> = new
+                        .get(new_attr)
+                        .filter(|new_value: &&[u8]| {
+                            if let Some(old) = old {
+                                !old.get(old_attr)
+                                    .any(|old_value: &[u8]| old_value == *new_value)
+                            } else {
+                                true
+                            }
+                        })
+                        .collect();
+                    if add_values.len() == 1 && del_values.len() == 1 {
+                        // at least on eDirectory, replace works better on single-valued attributes
+                        let op = ModifyChangeRecordOp {
+                            typ: ModifyChangeRecordOpType::Replace,
+                            attr: new_attr.to_string(),
+                            values: add_values,
+                        };
+                        modify.ops.push(op);
+                    } else {
+                        if !del_values.is_empty() {
+                            let op = ModifyChangeRecordOp {
+                                typ: ModifyChangeRecordOpType::Delete,
+                                attr: old_attr.to_string(),
+                                values: del_values,
+                            };
+                            modify.ops.push(op);
+                        }
+                        if !add_values.is_empty() {
+                            let op = ModifyChangeRecordOp {
+                                typ: ModifyChangeRecordOpType::Add,
+                                attr: new_attr.to_string(),
+                                values: add_values,
+                            };
+                            modify.ops.push(op);
+                        }
+                    }
+                },
             }
         }
         if modify.ops.is_empty() {
@@ -340,13 +351,13 @@ fn write_modify<W: Write>(w: &mut W, modify: &ModifyChangeRecord) -> std::io::Re
         match op.typ {
             ModifyChangeRecordOpType::Add => {
                 writeln!(w, "add: {}", op.attr)?;
-            },
+            }
             ModifyChangeRecordOpType::Delete => {
                 writeln!(w, "delete: {}", op.attr)?;
-            },
+            }
             ModifyChangeRecordOpType::Replace => {
                 writeln!(w, "replace: {}", op.attr)?;
-            },
+            }
         }
         for value in op.values.iter() {
             write_attrval(&mut w, &op.attr, value)?;
@@ -357,45 +368,60 @@ fn write_modify<W: Write>(w: &mut W, modify: &ModifyChangeRecord) -> std::io::Re
     Ok(())
 }
 
-fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap, params: &Parameters) -> std::io::Result<()> {
-    let mut old_iter = old_entries.0.iter().peekable();
-    let mut new_iter = new_entries.0.iter().peekable();
+fn compare_entries(
+    old_entries: &EntryBTreeMap,
+    new_entries: &EntryBTreeMap,
+    params: &Parameters,
+) -> std::io::Result<()> {
+    let comparison = SortedComparison{
+        old_iter: old_entries.0.iter().peekable(),
+        new_iter: new_entries.0.iter().peekable(),
+        compare_items: |(old_dn, _), (new_dn, _)| old_dn.cmp(new_dn),
+    };
     let mut deferred_deletes: Vec<Cow<str>> = Vec::new();
-    loop {
-        match (old_iter.peek(), new_iter.peek()) {
-            (Some((old_dn, old_entry)), Some((new_dn, new_entry))) => {
-                match old_dn.cmp(new_dn) {
-                    Ordering::Equal => {
-                        if let Some(change) = ModifyChangeRecord::new(old_entry, new_entry, &params.attrs, params.invert) {
-                            write_modify(&mut std::io::stdout(), &change)?;
-                        }
-                        old_iter.next();
-                        new_iter.next();
-                    },
-                    Ordering::Less => {
-                        if let Some(dn) = old_entry.get_one_str("dn") {
-                            deferred_deletes.push(dn);
-                        }
-                        old_iter.next();
-                    }
-                    Ordering::Greater => {
-                        write_add(&mut std::io::stdout(), new_entry, &params.attrs, params.invert)?;
-                        new_iter.next();
-                    }
+    let mut deferred_modifies: Vec<ModifyChangeRecord> = Vec::new();
+    for op in comparison {
+        match op {
+            Diff::Add((_, new_entry)) => {
+                write_add(
+                    &mut std::io::stdout(),
+                    new_entry,
+                    &params.attrs,
+                    params.invert,
+                )?;
+                if let Some(defer) =
+                    ModifyChangeRecord::new(None, new_entry, &params.defer_attrs, false)
+                {
+                    deferred_modifies.push(defer)
                 }
             },
-            (Some((_, old_entry)), None) => {
+            Diff::Delete((_, old_entry)) => {
                 if let Some(dn) = old_entry.get_one_str("dn") {
                     deferred_deletes.push(dn);
                 }
-                old_iter.next();
             },
-            (None, Some((_, new_entry))) => {
-                write_add(&mut std::io::stdout(), new_entry, &params.attrs, params.invert)?;
-                new_iter.next();
+            Diff::Modify((_, old_entry), (_, new_entry)) => {
+                if let Some(change) = ModifyChangeRecord::new(
+                    Some(old_entry),
+                    new_entry,
+                    &params.attrs,
+                    params.invert,
+                ) {
+                    write_modify(&mut std::io::stdout(), &change)?;
+                }
+                if let Some(defer) = ModifyChangeRecord::new(
+                    Some(old_entry),
+                    new_entry,
+                    &params.defer_attrs,
+                    false,
+                ) {
+                    deferred_modifies.push(defer)
+                }
             },
-            (None, None) => break,
         }
+    }
+    for modify in deferred_modifies.iter() {
+        write_modify(&mut std::io::stdout(), modify)?;
     }
     for delete in deferred_deletes.iter().rev() {
         write_delete(&mut std::io::stdout(), delete)?;
@@ -403,7 +429,11 @@ fn compare_entries(old_entries: &EntryBTreeMap, new_entries: &EntryBTreeMap, par
     Ok(())
 }
 
-fn do_io<Old: Read, New: Read>(old: &mut Old, new: &mut New, params: &Parameters) -> std::io::Result<()> {
+fn do_io<Old: Read, New: Read>(
+    old: &mut Old,
+    new: &mut New,
+    params: &Parameters,
+) -> std::io::Result<()> {
     let old_entries = read_entries(old)?;
     let new_entries = read_entries(new)?;
     compare_entries(&old_entries, &new_entries, params)?;
@@ -413,14 +443,12 @@ fn do_io<Old: Read, New: Read>(old: &mut Old, new: &mut New, params: &Parameters
 fn get_result() -> Result<(), Box<dyn std::error::Error>> {
     let params = parse_arguments()?;
     match (&params.old[..], &params.new[..]) {
-        ("-", "-") => {
-            return Err("both inputs can't be standard input".into())
-        },
+        ("-", "-") => return Err("both inputs can't be standard input".into()),
         ("-", new) => {
             let mut old = std::io::stdin();
             let mut new = std::fs::File::open(new)?;
             do_io(&mut old, &mut new, &params)?;
-        },
+        }
         (old, "-") => {
             let mut old = std::fs::File::open(old)?;
             let mut new = std::io::stdin();
@@ -430,9 +458,71 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
             let mut old = std::fs::File::open(old)?;
             let mut new = std::fs::File::open(new)?;
             do_io(&mut old, &mut new, &params)?;
-        },
+        }
     }
     Ok(())
+}
+
+struct SortedComparison<T, O, N, F>
+    where T: Copy,
+          O: Iterator<Item = T>,
+          N: Iterator<Item = T>,
+          F: Fn(&T, &T) -> Ordering,
+{
+    old_iter: Peekable<O>,
+    new_iter: Peekable<N>,
+    compare_items: F,
+}
+
+enum Diff<T> {
+    Add(T),
+    Delete(T),
+    Modify(T, T),
+}
+
+impl<T, O, N, F> Iterator for SortedComparison<T, O, N, F>
+where T: Copy,
+      O: Iterator<Item = T>,
+      N: Iterator<Item = T>,
+      F: Fn(&T, &T) -> Ordering,
+{
+    type Item = Diff<T>;
+
+    fn next(&mut self) -> Option<Diff<T>> {
+        match (self.old_iter.peek(), self.new_iter.peek()) {
+            (Some(old), Some(new)) => {
+                match (self.compare_items)(old, new) {
+                    Ordering::Less => {
+                        let op = Diff::Delete(*old);
+                        self.old_iter.next();
+                        Some(op)
+                    },
+                    Ordering::Greater => {
+                        let op = Diff::Add(*new);
+                        self.new_iter.next();
+                        Some(op)
+                    },
+                    Ordering::Equal => {
+                        let op = Diff::Modify(*old, *new);
+                        self.old_iter.next();
+                        self.new_iter.next();
+                        Some(op)
+                    },
+                }
+            },
+            (Some(old), None) => {
+                let op = Diff::Delete(*old);
+                self.old_iter.next();
+                Some(op)
+            },
+            (None, Some(new)) => {
+                let op = Diff::Add(*new);
+                self.new_iter.next();
+                Some(op)
+            },
+            (None, None) => None,
+        }
+    }
 }
 
 fn main() {
@@ -442,3 +532,28 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test() {
+        let old = vec![1,3,5];
+        let new = vec![2,3,4];
+        let comparison = SortedComparison{
+            old_iter: old.iter().peekable(),
+            new_iter: new.iter().peekable(),
+            compare_items: |x, y| x.cmp(y),
+        };
+
+        for op in comparison {
+            match op {
+                Diff::Add(x) => println!("add {}", x),
+                Diff::Delete(x) => println!("del {}", x),
+                Diff::Modify(x, y) => println!("mod {} {}", x, y),
+            }
+        }
+    }
+}
+
