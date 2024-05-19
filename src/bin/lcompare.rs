@@ -1,7 +1,6 @@
 use clap::{arg, command, ArgAction};
-use ltools::base64::EncodeWriter;
 use ltools::crstrip::CrStripper;
-use ltools::entry::{Entry, EntryTokenWriter, OwnedEntry, WriteEntry};
+use ltools::entry::{Entry, EntryTokenWriter, OwnedEntry, WriteEntry, write_attrval};
 use ltools::lexer::Lexer;
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
@@ -60,12 +59,12 @@ fn parse_arguments() -> Result<Parameters, &'static str> {
 
     params.attrs = matches.get_many::<String>("ATTRIBUTES")
         .map(|attrs| attrs.map(|attr| attr.to_lowercase()).collect())
-        .unwrap_or_else(|| Vec::new());
+        .unwrap_or_else(Vec::new);
     params.invert = matches.get_flag("invert") != params.attrs.is_empty();
 
     params.defer_attrs = matches.get_many::<String>("defer")
         .map(|attrs| attrs.map(|attr| attr.to_lowercase()).collect())
-        .unwrap_or_else(|| Vec::new());
+        .unwrap_or_else(Vec::new);
     if params.invert {
         params.attrs.extend(params.defer_attrs.iter().cloned());
     }
@@ -136,39 +135,6 @@ fn read_entries<R: Read>(mut input: R) -> std::io::Result<EntryBTreeMap> {
     copy(&mut input, &mut wrapper)?;
     wrapper.flush()?;
     Ok(entries)
-}
-
-fn write_attrval<W: Write>(w: &mut W, attr: &str, value: &[u8]) -> std::io::Result<()> {
-    write!(w, "{}:", attr)?;
-    if is_ldif_safe_string(value) {
-        writeln!(w, " {}", String::from_utf8_lossy(value))?;
-    } else {
-        write!(w, ":")?;
-        let mut w = w;
-        let mut base64 = EncodeWriter::new(&mut w);
-        base64.write_all(value)?;
-        base64.flush()?;
-        writeln!(w)?;
-    }
-    Ok(())
-}
-
-fn is_ldif_safe_string(value: &[u8]) -> bool {
-    if let Some(c) = value.iter().copied().next() {
-        if matches!(c, b'<' | b':') {
-            return false;
-        }
-    }
-
-    for c in value.iter().copied() {
-        if matches!(c, b'\0' | b'\n' | b'\r' | b' ') {
-            return false;
-        }
-        if c > 127 {
-            return false;
-        }
-    }
-    true
 }
 
 fn write_add<W: Write>(

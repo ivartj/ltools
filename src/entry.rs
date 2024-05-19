@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::borrow::{ Cow, Borrow };
 use std::io::{ Result, Write };
 use std::ops::Deref;
-use crate::base64::{DecodeWriter, DecodeState};
+use crate::base64::{EncodeWriter, DecodeWriter, DecodeState};
 use crate::lexer::{
     Token,
     TokenKind,
@@ -272,6 +272,39 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
         }
         Ok(())
     }
+}
+
+pub fn write_attrval<W: Write>(w: &mut W, attr: &str, value: &[u8]) -> std::io::Result<()> {
+    write!(w, "{}:", attr)?;
+    if is_ldif_safe_string(value) {
+        writeln!(w, " {}", String::from_utf8_lossy(value))?;
+    } else {
+        write!(w, ":")?;
+        let mut w = w;
+        let mut base64 = EncodeWriter::new(&mut w);
+        base64.write_all(value)?;
+        base64.flush()?;
+        writeln!(w)?;
+    }
+    Ok(())
+}
+
+fn is_ldif_safe_string(value: &[u8]) -> bool {
+    if let Some(c) = value.iter().copied().next() {
+        if matches!(c, b'<' | b':') {
+            return false;
+        }
+    }
+
+    for c in value.iter().copied() {
+        if matches!(c, b'\0' | b'\n' | b'\r' | b' ') {
+            return false;
+        }
+        if c > 127 {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
