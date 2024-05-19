@@ -114,7 +114,7 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
 fn main() {
     let result = get_result();
     if let Err(err) = result {
-        eprintln!("lcompare: {}", err);
+        eprintln!("lprocess: {}", err);
         std::process::exit(1);
     }
 }
