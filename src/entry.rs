@@ -289,6 +289,19 @@ pub fn write_attrval<W: Write>(w: &mut W, attr: &str, value: &[u8]) -> std::io::
     Ok(())
 }
 
+pub fn write_entry_normally<W: Write>(w: &mut W, entry: &Entry) -> std::io::Result<()> {
+    if let Some(dn) = entry.get_one("dn") {
+        write_attrval(w, "dn", dn)?;
+    }
+
+    for attr in entry.attributes().filter(|attr| *attr != "dn") {
+        for value in entry.get(attr) {
+            write_attrval(w, attr, value)?;
+        }
+    }
+    w.write_all(b"\n")
+}
+
 fn is_ldif_safe_string(value: &[u8]) -> bool {
     if let Some(c) = value.iter().copied().next() {
         if matches!(c, b'<' | b':') {

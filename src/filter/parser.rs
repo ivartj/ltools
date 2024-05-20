@@ -8,31 +8,7 @@ use nom::{
     multi::{ fold_many0, many1 },
     combinator::map,
 };
-
-#[derive(Debug, PartialEq)]
-pub enum Filter {
-    And(Vec<Filter>),
-    Or(Vec<Filter>),
-    Not(Box<Filter>),
-    Simple(AttributeDescription, FilterType, Vec<u8>),
-    Present(AttributeDescription),
-    // TODO: Substring(AttributeDescription, ...
-    // TODO: Extensible(...
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct AttributeDescription {
-    pub attribute_type: String,
-    // TODO: add options
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum FilterType {
-    Equal,
-    Approx,
-    GreaterOrEqual,
-    LessOrEqual,
-}
+use crate::filter::{Filter, FilterType, AttributeDescription};
 
 fn attribute_type(input: &str) -> IResult<&str, String> {
     let (input, start_char) = satisfy(|c| c.is_ascii_alphabetic())(input)?;
