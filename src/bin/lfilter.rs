@@ -3,7 +3,7 @@ use ltools::crstrip::CrStripper;
 use ltools::lexer::Lexer;
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
-use ltools::entry::{Entry, WriteEntry, EntryTokenWriter, write_attrval};
+use ltools::entry::{Entry, OwnedEntry, WriteEntry, EntryTokenWriter, write_attrval};
 use ltools::filter::parser::{Filter,FilterType,filter as parse_filter};
 use std::fs::File;
 use std::io::{copy, Write, Stdout};
@@ -12,6 +12,7 @@ struct LFilter {
     filter: Filter,
     matched_output: Box<dyn Write>,
     unmatched_output: Option<Stdout>,
+    matched_entries: Vec<OwnedEntry>,
 }
 
 fn parse_arguments() -> Result<LFilter, &'static str> {
@@ -51,6 +52,7 @@ fn parse_arguments() -> Result<LFilter, &'static str> {
         filter,
         matched_output,
         unmatched_output,
+        matched_entries: Vec::new(),
     })
 }
 
@@ -90,10 +92,18 @@ fn write_entry_normally<W: Write>(output: &mut W, entry: &Entry) -> std::io::Res
 
 impl WriteEntry for LFilter {
     fn write_entry(&mut self, entry: &Entry) -> std::io::Result<()> {
-        if is_match(entry, &self.filter) {
+        if let Some(ref mut unmatched_output) = self.unmatched_output {
+            if is_match(entry, &self.filter) {
+                self.matched_entries.push(entry.into()); // defer writing matched entries so that
+                                                         // they don't potentially interleave the
+                                                         // unmatched entries if user passes
+                                                         // something like >(cat) as output file
+                Ok(())
+            } else {
+                write_entry_normally(unmatched_output, entry)
+            }
+        } else if is_match(entry, &self.filter) {
             write_entry_normally(&mut self.matched_output, entry)
-        } else if let Some(ref mut unmatched_output) = self.unmatched_output {
-            write_entry_normally(unmatched_output, entry)
         } else {
             Ok(())
         }
@@ -109,6 +119,13 @@ fn get_result() -> Result<(), Box<dyn std::error::Error>> {
     let mut wrapper = WriteLocWrapper::new(crstripper);
     copy(&mut std::io::stdin(), &mut wrapper)?;
     wrapper.flush()?;
+    if let Some(ref mut unmatched_output) = lfilter.unmatched_output {
+        unmatched_output.flush()?;
+    }
+    for entry in lfilter.matched_entries.iter() {
+        write_entry_normally(&mut lfilter.matched_output, entry)?;
+    }
+    lfilter.matched_output.flush()?;
     Ok(())
 }
 
