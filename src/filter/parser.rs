@@ -22,7 +22,7 @@ pub enum Filter {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct AttributeDescription {
-    attribute_type: String,
+    pub attribute_type: String,
     // TODO: add options
 }
 
@@ -36,10 +36,11 @@ pub enum FilterType {
 
 fn attribute_type(input: &str) -> IResult<&str, String> {
     let (input, start_char) = satisfy(|c| c.is_ascii_alphabetic())(input)?;
+    let start_char = start_char.to_ascii_lowercase();
     fold_many0(
         satisfy(|c| c.is_ascii_alphanumeric() || c == '-'),
         move || start_char.to_string(),
-        |mut s, c| { s.push(c); s},
+        |mut s, c| { s.push(c.to_ascii_lowercase()); s},
     )(input)
 }
 
