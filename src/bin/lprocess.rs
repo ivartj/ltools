@@ -4,7 +4,7 @@ use ltools::lexer::Lexer;
 use ltools::loc::WriteLocWrapper;
 use ltools::unfold::Unfolder;
 use ltools::entry::{Entry, WriteEntry, EntryTokenWriter, write_attrval};
-use std::io::{copy, Read, Write, Stdout};
+use std::io::{copy, Read, Write, Stdout, ErrorKind};
 use std::process::{Command, Stdio};
 
 struct EntryProcessor<W: Write> {
@@ -59,15 +59,22 @@ fn parse_arguments() -> Result<EntryProcessor<Stdout>, &'static str> {
 }
 
 fn process_value(command: &mut Command, value: &[u8]) -> std::io::Result<Vec<u8>> {
-    let process = command.spawn()?;
-    let mut value: Vec<u8> = value.into();
-    if let (Some(mut stdin), Some(mut stdout)) = (process.stdin, process.stdout) {
-        stdin.write_all(value.as_slice())?;
+    let mut process = command.spawn()?;
+    if let Some(mut stdin) = process.stdin.take() {
+        stdin.write_all(value)?;
+        stdin.flush()?;
         drop(stdin);
-        value.clear();
+    }
+    let mut value: Vec<u8> = Vec::with_capacity(value.len() * 2);
+    if let Some(mut stdout) = process.stdout.take() {
         stdout.read_to_end(&mut value)?;
     }
-    Ok(value)
+    let exit_status = process.wait()?;
+    if exit_status.success() {
+        Ok(value)
+    } else {
+        Err(std::io::Error::new(ErrorKind::Other, exit_status.to_string()))
+    }
 }
 
 impl<W: Write> WriteEntry for EntryProcessor<W> {
