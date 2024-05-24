@@ -54,11 +54,48 @@ impl Filter {
             }
             Filter::Simple(attrdesc, filtertype, filtervalue) => {
                 let attr = &attrdesc.attribute_type;
+                let equal = entry.get(attr).any(|value| {
+                    let value = value.to_ascii_lowercase();
+                    value == *filtervalue
+                });
                 match filtertype {
-                    FilterType::Equal => entry.get(attr).any(|value| value == filtervalue),
-                    _ => false,
+                    FilterType::Equal | FilterType::Approx => equal,
+                    FilterType::GreaterOrEqual | FilterType::LessOrEqual => if equal { true } else {
+                        todo!()
+                    },
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::entry::{OwnedEntry, EntryTokenWriter};
+    use crate::lexer::Lexer;
+    use crate::loc::WriteLocWrapper;
+    use std::io::Write;
+
+    #[test]
+    fn test() -> Result<(), Box<dyn std::error::Error>> {
+        let ldif = br#"
+dn: cn=foo
+cn: foo
+"#;
+        let mut entries: Vec<OwnedEntry> = Vec::new();
+        let token_writer = EntryTokenWriter::new(&mut entries);
+        let mut lexer = Lexer::new(token_writer);
+        let mut wrapper = WriteLocWrapper::new(&mut lexer);
+        wrapper.write_all(ldif)?;
+        wrapper.flush()?;
+
+        let filter1 = Filter::parse("(cn=FOO)")?;
+        if let Some(entry) = entries.get(0) {
+            assert!(filter1.is_match(entry));
+        }
+
+
+        Ok(())
     }
 }

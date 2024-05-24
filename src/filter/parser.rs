@@ -51,7 +51,12 @@ fn attribute_value(input: &str) -> IResult<&str, Vec<u8>> {
             ),
             map(
                 satisfy(|c| !"\0()*\x1b".chars().any(|b| b == c)),
-                |c| { let mut v = Vec::new(); v.extend(c.encode_utf8(&mut [0u8;4]).as_bytes()); v }
+                |c| {
+                    let mut v = Vec::new();
+                    let c = c.to_ascii_lowercase();
+                    v.extend(c.encode_utf8(&mut [0u8;4]).as_bytes());
+                    v
+                }
             )
         )),
         Vec::new,

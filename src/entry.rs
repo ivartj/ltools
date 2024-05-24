@@ -21,6 +21,8 @@ where 'a: 'b
     attr2values: HashMap<String, Cow<'a, Vec<EntryValue<'b>>>>,
 }
 
+pub type EntryValue<'a> = Cow<'a, Vec<u8>>;
+
 const NO_VALUES: &Vec<EntryValue<'static>> = &vec![];
 
 impl<'a, 'b> Entry<'a, 'b> {
@@ -91,7 +93,12 @@ impl<'a, 'b> From<&Entry<'a, 'b>> for OwnedEntry {
     }
 }
 
-pub type EntryValue<'a> = Cow<'a, Vec<u8>>;
+impl WriteEntry for Vec<OwnedEntry> {
+    fn write_entry(&mut self, entry: &Entry) -> std::io::Result<()> {
+        self.push(entry.into());
+        Ok(())
+    }
+}
 
 impl<const N: usize> From<[(&str, &[u8]); N]> for Entry<'static, 'static> {
     fn from(array: [(&str, &[u8]); N]) -> Entry<'static, 'static> {
@@ -325,13 +332,6 @@ mod test {
     use super::*;
     use crate::lexer::Lexer;
     use crate::loc::{ Loc, LocWrite };
-
-    impl WriteEntry for Vec<OwnedEntry> {
-        fn write_entry(&mut self, entry: &Entry) -> Result<()> {
-            self.push(entry.into());
-            Ok(())
-        }
-    }
 
     #[test]
     fn entry_token_writer_test_a() -> Result<()> {
