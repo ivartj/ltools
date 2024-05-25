@@ -2,6 +2,7 @@ pub mod parser;
 
 use crate::entry::Entry;
 use crate::filter::parser::filter as parse_filter;
+use std::mem::swap;
 
 #[derive(Debug, PartialEq)]
 pub enum Filter {
@@ -10,7 +11,7 @@ pub enum Filter {
     Not(Box<Filter>),
     Simple(AttributeDescription, FilterType, Vec<u8>),
     Present(AttributeDescription),
-    // TODO: Substring(AttributeDescription, ...
+    Substring(AttributeDescription, Vec<GlobPart>),
     // TODO: Extensible(...
 }
 
@@ -28,6 +29,11 @@ pub enum FilterType {
     LessOrEqual,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum GlobPart {
+    Wildcard,
+    Literal(u8),
+}
 
 impl Filter {
     pub fn parse(s: &str) -> Result<Filter, &'static str> {
@@ -64,9 +70,43 @@ impl Filter {
                         todo!()
                     },
                 }
-            }
+            },
+            Filter::Substring(attrdesc, glob) => {
+                let attr = &attrdesc.attribute_type;
+                for value in entry.get(attr) {
+                    if is_match(glob, value) {
+                        return true;
+                    }
+                }
+                return false;
+            },
         }
     }
+}
+
+fn is_match(glob: &[GlobPart], value: &[u8]) -> bool {
+    let mut old_states: Vec<usize> = Vec::new(); // indices into glob
+    let mut new_states: Vec<usize> = Vec::new(); // indices into glob
+    old_states.push(0);
+    for value_byte in value.iter().copied() {
+        for state in old_states.iter() {
+            match glob.get(*state) {
+                Some(GlobPart::Literal(glob_byte)) => {
+                    if value_byte == *glob_byte {
+                        new_states.push(*state + 1);
+                    }
+                },
+                Some(GlobPart::Wildcard) => {
+                    new_states.push(*state);
+                    new_states.push(*state + 1);
+                },
+                None => {},
+            }
+        }
+        swap(&mut old_states, &mut new_states);
+        new_states.clear();
+    }
+    old_states.iter().any(|state| *state == glob.len())
 }
 
 #[cfg(test)]
@@ -90,11 +130,15 @@ cn: foo
         wrapper.write_all(ldif)?;
         wrapper.flush()?;
 
-        let filter1 = Filter::parse("(cn=FOO)")?;
+        let filter = Filter::parse("(cn=FOO)")?;
         if let Some(entry) = entries.get(0) {
-            assert!(filter1.is_match(entry));
+            assert!(filter.is_match(entry));
         }
 
+        let filter = Filter::parse("(cn=f*)")?;
+        if let Some(entry) = entries.get(0) {
+            assert!(filter.is_match(entry));
+        }
 
         Ok(())
     }

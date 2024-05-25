@@ -8,7 +8,7 @@ use nom::{
     multi::{ fold_many0, many1 },
     combinator::map,
 };
-use crate::filter::{Filter, FilterType, AttributeDescription};
+use crate::filter::{Filter, FilterType, AttributeDescription, GlobPart};
 
 fn attribute_type(input: &str) -> IResult<&str, String> {
     let (input, start_char) = satisfy(|c| c.is_ascii_alphabetic())(input)?;
@@ -39,29 +39,30 @@ fn hex_digit_value(c: char) -> u8 {
     }
 }
 
-fn attribute_value(input: &str) -> IResult<&str, Vec<u8>> {
-    fold_many0(
-        alt((
-            map(
-                preceded(
-                    char('\\'),
-                    pair(satisfy(AsChar::is_hex_digit), satisfy(AsChar::is_hex_digit))
-                ),
-                |(fst, snd)| vec![hex_digit_value(fst) * 16u8 + hex_digit_value(snd)]
+fn attribute_value_byte(input: &str) -> IResult<&str, u8> {
+    alt((
+        map(
+            preceded(
+                char('\\'),
+                pair(satisfy(AsChar::is_hex_digit), satisfy(AsChar::is_hex_digit))
             ),
-            map(
-                satisfy(|c| !"\0()*\x1b".chars().any(|b| b == c)),
-                |c| {
-                    let mut v = Vec::new();
-                    let c = c.to_ascii_lowercase();
-                    v.extend(c.encode_utf8(&mut [0u8;4]).as_bytes());
-                    v
+            |(fst, snd)| hex_digit_value(fst) * 16u8 + hex_digit_value(snd)
+        ),
+        map(
+            satisfy(|c| !"\0()*\x1b".chars().any(|b| b == c)),
+            |c| {
+                let c = c.to_ascii_lowercase();
+                match u8::try_from(c) {
+                    Ok(c) => c,
+                    Err(_) => unreachable!(),
                 }
-            )
-        )),
-        Vec::new,
-        |mut v, bytes| { v.extend(bytes); v },
-    )(input)
+            }
+        )
+    ))(input)
+}
+
+fn attribute_value(input: &str) -> IResult<&str, Vec<u8>> {
+    fold_many0(attribute_value_byte, Vec::new, |mut v, byte| { v.push(byte); v })(input)
 }
 
 fn simple_filter(input: &str) -> IResult<&str, Filter> {
@@ -88,6 +89,26 @@ fn present_filter(input: &str) -> IResult<&str, Filter> {
         })(input)
 }
 
+fn substring_filter(input: &str) -> IResult<&str, Filter> {
+    map(tuple((char('('), attribute_type, char('='), glob, char(')'))),
+        |(_,atype, _, glob, _)| {
+            Filter::Substring(
+                AttributeDescription{
+                    attribute_type: atype,
+                },
+                glob
+            )
+        })(input)
+}
+
+fn glob(input: &str) -> IResult<&str, Vec<GlobPart>> {
+    let part = alt((
+            map(char('*'), |_| GlobPart::Wildcard),
+            map(attribute_value_byte, |byte| GlobPart::Literal(byte)),
+    ));
+    many1(part)(input)
+}
+
 fn not_filter(input: &str) -> IResult<&str, Filter> {
     map(delimited(tag("(!"), filter, char(')')),
         |inner_filter| Filter::Not(Box::new(inner_filter)),
@@ -110,6 +131,7 @@ pub fn filter(input: &str) -> IResult<&str, Filter> {
     alt((
         simple_filter,
         present_filter,
+        substring_filter,
         not_filter,
         and_filter,
         or_filter,
@@ -166,5 +188,12 @@ mod test {
                 Filter::Present(AttributeDescription::new(String::from("f"))),
                 Filter::Simple(AttributeDescription::new(String::from("o")), FilterType::GreaterOrEqual, vec![b'o']),
             ]))));
+    }
+
+    #[test]
+    fn test_substring_filter() {
+        assert_eq!(
+            glob("f*"),
+            Ok(("", vec![GlobPart::Literal(b'f'), GlobPart::Wildcard])));
     }
 }
