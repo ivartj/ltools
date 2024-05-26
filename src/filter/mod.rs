@@ -3,6 +3,7 @@ pub mod parser;
 use crate::entry::Entry;
 use crate::filter::parser::filter as parse_filter;
 use std::mem::swap;
+use std::collections::BTreeSet;
 
 #[derive(Debug, PartialEq)]
 pub enum Filter {
@@ -83,24 +84,36 @@ impl Filter {
 }
 
 fn is_match(glob: &[GlobPart], value: &[u8]) -> bool {
-    let mut old_states: Vec<usize> = Vec::new(); // indices into glob
-    let mut new_states: Vec<usize> = Vec::new(); // indices into glob
-    old_states.push(0);
+    let mut old_states: BTreeSet<usize> = BTreeSet::new(); // indices into glob
+    let mut new_states: BTreeSet<usize> = BTreeSet::new();
+    let mut post_wildcard_states: BTreeSet<usize> = BTreeSet::new();
+    old_states.insert(0);
     for value_byte in value.iter().copied() {
         for state in old_states.iter() {
             match glob.get(*state) {
                 Some(GlobPart::Literal(glob_byte)) => {
                     if value_byte == *glob_byte {
-                        new_states.push(*state + 1);
+                        new_states.insert(*state + 1);
                     }
                 },
                 Some(GlobPart::Wildcard) => {
-                    new_states.push(*state);
-                    new_states.push(*state + 1);
+                    new_states.insert(*state);
                 },
                 None => {},
             }
         }
+        for state in new_states.iter().copied() {
+            if glob.get(state) == Some(&GlobPart::Wildcard) {
+                let mut post_wildcard_state = state + 1;
+                while glob.get(post_wildcard_state) == Some(&GlobPart::Wildcard) {
+                    // handle consecutive wildcards as one wildcard
+                    post_wildcard_state += 1;
+                }
+                post_wildcard_states.insert(post_wildcard_state);
+            }
+        }
+        new_states.extend(post_wildcard_states.iter());
+        post_wildcard_states.clear();
         swap(&mut old_states, &mut new_states);
         new_states.clear();
     }
@@ -134,6 +147,11 @@ cn: foo
         }
 
         let filter = Filter::parse("(cn=f*)")?;
+        if let Some(entry) = entries.get(0) {
+            assert!(filter.is_match(entry));
+        }
+
+        let filter = Filter::parse("(cn=foo*)")?;
         if let Some(entry) = entries.get(0) {
             assert!(filter.is_match(entry));
         }
