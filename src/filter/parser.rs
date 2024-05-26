@@ -104,7 +104,7 @@ fn substring_filter(input: &str) -> IResult<&str, Filter> {
 fn glob(input: &str) -> IResult<&str, Vec<GlobPart>> {
     let part = alt((
             map(char('*'), |_| GlobPart::Wildcard),
-            map(attribute_value_byte, |byte| GlobPart::Literal(byte)),
+            map(attribute_value_byte, GlobPart::Literal),
     ));
     many1(part)(input)
 }

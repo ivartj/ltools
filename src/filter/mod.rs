@@ -66,9 +66,7 @@ impl Filter {
                 });
                 match filtertype {
                     FilterType::Equal | FilterType::Approx => equal,
-                    FilterType::GreaterOrEqual | FilterType::LessOrEqual => if equal { true } else {
-                        todo!()
-                    },
+                    FilterType::GreaterOrEqual | FilterType::LessOrEqual => todo!(),
                 }
             },
             Filter::Substring(attrdesc, glob) => {
@@ -78,7 +76,7 @@ impl Filter {
                         return true;
                     }
                 }
-                return false;
+                false
             },
         }
     }
