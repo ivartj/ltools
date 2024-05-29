@@ -279,7 +279,7 @@ impl<'z> ModifyChangeRecord<'z> {
                             }
                         })
                         .collect();
-                    if add_values.len() == 1 && del_values.len() == 1 {
+                    if add_values.len() == 1 && del_values.len() == 1 && new.get(new_attr).count() == 1 {
                         // at least on eDirectory, replace works better on single-valued attributes
                         let op = ModifyChangeRecordOp {
                             typ: ModifyChangeRecordOpType::Replace,
