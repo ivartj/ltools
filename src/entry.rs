@@ -18,6 +18,7 @@ enum ValueType {
 pub struct Entry<'a, 'b>
 where 'a: 'b
 {
+    attrnames: Option<HashMap<String, String>>, // original case names
     attr2values: HashMap<String, Cow<'a, Vec<EntryValue<'b>>>>,
 }
 
@@ -66,7 +67,15 @@ impl<'a, 'b> Entry<'a, 'b> {
             .filter(|(_, values)| {
                 !values.is_empty()
             })
-            .map(|(attr, _)| attr.borrow())
+            .map(|(attr, _)| {
+                let mut attrname: &str = attr.borrow();
+                if let Some(ref attrnames) = self.attrnames {
+                    if let Some(attr) = attrnames.get(attr) {
+                        attrname = attr.borrow();
+                    }
+                }
+                attrname
+            })
             .collect();
         attrs.into_iter()
     }
@@ -88,6 +97,7 @@ impl<'a, 'b> From<&Entry<'a, 'b>> for OwnedEntry {
             })
             .collect();
         Entry{
+            attrnames: entry.attrnames.clone(),
             attr2values,
         }
     }
@@ -115,6 +125,7 @@ impl<const N: usize> From<[(&str, &[u8]); N]> for Entry<'static, 'static> {
             }
         }
         Entry{
+            attrnames: None,
             attr2values,
         }
     }
@@ -143,6 +154,7 @@ pub struct EntryTokenWriter<'a, W: WriteEntry> {
     all_attributes: bool,
     state: WriterState,
     attr2index: HashMap<String, usize>,
+    attrnames: Vec<String>, // original case attribute names
     attrvalues: Vec<Vec<EntryValue<'a>>>,
     attrmatch: Option<usize>, // index of currently matched attribute
     valuebuf: Vec<u8>,
@@ -158,6 +170,7 @@ impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
             all_attributes: true,
             state: WriterState::Start,
             attr2index: HashMap::new(),
+            attrnames: Vec::new(),
             attrvalues: Vec::new(),
             attrmatch: None,
             valuebuf: Vec::new(),
@@ -172,7 +185,7 @@ impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
         let attrvalues = attributes.iter()
             .map(|_| Vec::new())
             .collect();
-        let attr2index = attributes.into_iter()
+        let attr2index = attributes.iter()
             .map(|attr| attr.to_ascii_lowercase())
             .enumerate()
             .map(|(v, k)| (k, v))
@@ -180,6 +193,7 @@ impl<'a, W: WriteEntry> EntryTokenWriter<'a, W> {
         EntryTokenWriter{
             all_attributes: false,
             state: WriterState::Start,
+            attrnames: attributes,
             attr2index,
             attrvalues,
             attrmatch: None,
@@ -201,6 +215,7 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
     fn write_token(&mut self, token: Token) -> Result<()> {
         match token.kind {
             TokenKind::AttributeType => {
+                let attrname = token.segment;
                 let attrlowercase = token.segment.to_ascii_lowercase();
                 if self.state == WriterState::Start {
                     if attrlowercase == "version" {
@@ -225,6 +240,7 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
                     if index.is_none() && self.all_attributes {
                         let index: usize = self.attrvalues.len();
                         self.attrvalues.push(Vec::new());
+                        self.attrnames.push(attrname.to_string());
                         self.attr2index.insert(attrlowercase, index);
                         Some(index)
                     } else {
@@ -264,10 +280,14 @@ impl<'a, W: WriteEntry> WriteToken for EntryTokenWriter<'a, W> {
             }
             TokenKind::EntryFinish => {
                 if self.state == WriterState::Processing {
+                    let attrnames: HashMap<String, String> = self.attrnames.iter()
+                        .map(|attr| (attr.to_lowercase(), attr.to_string()))
+                        .collect();
                     let attr2values: HashMap<String, Cow<Vec<EntryValue>>> = self.attr2index.iter()
                         .map(|(attr, index)| (attr.clone(), Cow::Borrowed(&self.attrvalues[*index])))
                         .collect();
                     self.dest.write_entry(&Entry{
+                        attrnames: Some(attrnames),
                         attr2values,
                     })?;
                     for values in self.attrvalues.iter_mut() {
