@@ -68,7 +68,7 @@ impl<W: Write> WriteEntry for JsonEntryWriter<W> {
             if i != 0 {
                 self.dest.write_all(b",")?;
             }
-            write_json_string(&mut self.dest, attrtype)?;
+            write_json_string(&mut self.dest, &attrspec.attribute)?;
             self.dest.write_all(b":[")?;
             for (i, value) in values.iter().enumerate() {
                 if i != 0 {
