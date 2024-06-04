@@ -152,13 +152,13 @@ fn write_add<W: Write>(
     writeln!(w, "changetype: add")?;
     for attr in entry
         .attributes()
-        .filter(|attr| invert != attrs.iter().any(|arg_attr| attr == arg_attr))
+        .filter(|attr| invert != attrs.iter().any(|arg_attr| attr.lowercase == arg_attr))
     {
-        if attr.to_lowercase() == "dn" {
+        if attr.lowercase == "dn" {
             continue;
         }
-        for value in entry.get(attr) {
-            write_attrval(&mut w, attr, value)?;
+        for value in entry.get(attr.name) {
+            write_attrval(&mut w, attr.name, value)?;
         }
     }
     writeln!(w)?;
@@ -213,15 +213,17 @@ impl<'z> ModifyChangeRecord<'z> {
         let mut old_attrs: Vec<&str> = match old {
             Some(old) => old
                 .attributes()
-                .filter(|attr| attr != &"dn")
-                .filter(|attr| invert != attrs.iter().any(|arg_attr| arg_attr == *attr))
+                .map(|attr| attr.lowercase)
+                .filter(|lattr| lattr != &"dn")
+                .filter(|lattr| invert != attrs.iter().any(|arg_attr| arg_attr == *lattr))
                 .collect(),
             None => Vec::new(),
         };
         let mut new_attrs: Vec<&str> = new
             .attributes()
-            .filter(|attr| attr != &"dn")
-            .filter(|attr| invert != attrs.iter().any(|arg_attr| arg_attr == *attr))
+            .map(|attr| attr.lowercase)
+            .filter(|lattr| lattr != &"dn")
+            .filter(|lattr| invert != attrs.iter().any(|arg_attr| arg_attr == *lattr))
             .collect();
 
         old_attrs.sort();

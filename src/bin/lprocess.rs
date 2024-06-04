@@ -16,9 +16,9 @@ struct EntryProcessor<W: Write> {
 }
 
 impl<W: Write> EntryProcessor<W> {
-    fn should_process_attr(&self, attr: &str) -> bool {
+    fn should_process_attr(&self, attr_lowercase: &str) -> bool {
         if let Some(ref attrs) = self.attrs {
-            attrs.iter().any(|arg_attr| arg_attr == attr)
+            attrs.iter().any(|arg_attr| arg_attr == attr_lowercase)
         } else {
             true
         }
@@ -108,16 +108,16 @@ impl<W: Write> WriteEntry for EntryProcessor<W> {
             }
         }
         for attr in entry.attributes() {
-            if attr == "dn" {
+            if attr.lowercase == "dn" {
                 continue;
             }
-            let should_process_attr = self.should_process_attr(attr);
-            for value in entry.get(attr) {
+            let should_process_attr = self.should_process_attr(attr.lowercase);
+            for value in entry.get(attr.name) {
                 if should_process_attr {
                     let value = process_value(&mut self.command, value)?;
-                    write_attrval(&mut self.output, attr, value.as_slice())?;
+                    write_attrval(&mut self.output, attr.name, value.as_slice())?;
                 } else {
-                    write_attrval(&mut self.output, attr, value)?;
+                    write_attrval(&mut self.output, attr.name, value)?;
                 }
             }
         }

@@ -9,6 +9,11 @@ use crate::lexer::{
     WriteToken,
 };
 
+pub struct AttributeType<'a> {
+    pub name: &'a str,
+    pub lowercase: &'a str,
+}
+
 #[derive(PartialEq)]
 enum ValueType {
     Text,
@@ -61,9 +66,10 @@ impl<'a, 'b> Entry<'a, 'b> {
             .map(String::from_utf8_lossy)
     }
 
-    pub fn attributes(&self) -> impl Iterator<Item = &str>
+    // first is original case, second is lowercase
+    pub fn attributes(&self) -> impl Iterator<Item = AttributeType<'_>>
     {
-        let attrs: Vec<&str> = self.attr2values.iter()
+        let attrs: Vec<AttributeType<'_>> = self.attr2values.iter()
             .filter(|(_, values)| {
                 !values.is_empty()
             })
@@ -74,7 +80,10 @@ impl<'a, 'b> Entry<'a, 'b> {
                         attrname = attr.borrow();
                     }
                 }
-                attrname
+                AttributeType{
+                    name: attrname,
+                    lowercase: attr.borrow()
+                }
             })
             .collect();
         attrs.into_iter()
@@ -321,9 +330,9 @@ pub fn write_entry_normally<W: Write>(w: &mut W, entry: &Entry) -> std::io::Resu
         write_attrval(w, "dn", dn)?;
     }
 
-    for attr in entry.attributes().filter(|attr| *attr != "dn") {
-        for value in entry.get(attr) {
-            write_attrval(w, attr, value)?;
+    for attr in entry.attributes().filter(|attr| attr.lowercase != "dn") {
+        for value in entry.get(attr.name) {
+            write_attrval(w, attr.name, value)?;
         }
     }
     w.write_all(b"\n")
