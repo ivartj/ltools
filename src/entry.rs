@@ -47,7 +47,7 @@ impl<'a, 'b> Entry<'a, 'b> {
 
     pub fn get_one(&self, attr: &str) -> Option<&[u8]> {
         if let Some(value) = self.get(attr).next() {
-            Some(value.borrow())
+            Some(value)
         } else {
             None
         }
