@@ -72,7 +72,7 @@ impl<R: WriteToken> Lexer<R> {
 }
 
 macro_rules! SAFE_INIT_CHAR {
-    () => { 0x01..=0x09 | 0x0b..=0x0c | 0x0e..=0x1f | 0x21..=0x39 | 0x3b | 0x3d..=0x7d };
+    () => { 0x01..=0x09 | 0x0b..=0x0c | 0x0e..=0x1f | 0x21..=0x39 | 0x3b | 0x3d..=0x7f };
 }
 
 macro_rules! SAFE_CHAR {
@@ -285,6 +285,8 @@ mod tests {
                     # empty values preceded b whitespace\n\
                     foo: \n\
                     foo:: \n\
+                    # value starting with tilde\n\
+                    displayName: ~foo~\n\
                     \n\
                     dn: cn=uaadmin,ou=sa,o=data\n\
                     ").expect("success");
@@ -310,13 +312,17 @@ mod tests {
         assert_eq!(tuples[13], (TokenKind::ValueBase64, String::from("")));
         assert_eq!(tuples[14], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(tuples[15], (TokenKind::EntryFinish, String::from("")));
+        assert_eq!(tuples[15], (TokenKind::AttributeType, String::from("displayName")));
+        assert_eq!(tuples[16], (TokenKind::ValueText, String::from("~foo~")));
+        assert_eq!(tuples[17], (TokenKind::ValueFinish, String::from("")));
 
-        assert_eq!(tuples[16], (TokenKind::AttributeType, String::from("dn")));
-        assert_eq!(tuples[17], (TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data")));
-        assert_eq!(tuples[18], (TokenKind::ValueFinish, String::from("")));
-        assert_eq!(tuples[19], (TokenKind::EntryFinish, String::from("")));
-        assert_eq!(tuples.len(), 20);
+        assert_eq!(tuples[18], (TokenKind::EntryFinish, String::from("")));
+
+        assert_eq!(tuples[19], (TokenKind::AttributeType, String::from("dn")));
+        assert_eq!(tuples[20], (TokenKind::ValueText, String::from("cn=uaadmin,ou=sa,o=data")));
+        assert_eq!(tuples[21], (TokenKind::ValueFinish, String::from("")));
+        assert_eq!(tuples[22], (TokenKind::EntryFinish, String::from("")));
+        assert_eq!(tuples.len(), 23);
     }
 }
 
