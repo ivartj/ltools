@@ -87,12 +87,21 @@ fn is_match(glob: &[GlobPart], value: &[u8]) -> bool {
     let mut old_states: BTreeSet<usize> = BTreeSet::new(); // indices into glob
     let mut new_states: BTreeSet<usize> = BTreeSet::new();
     let mut post_wildcard_states: BTreeSet<usize> = BTreeSet::new();
+
+    // insert initial states
     old_states.insert(0);
+    if glob.get(0) == Some(&GlobPart::Wildcard) {
+        if let Some(first_non_wildcard) = (1..glob.len()).find(|idx| !matches!(glob.get(*idx), Some(&GlobPart::Wildcard))) {
+            old_states.insert(first_non_wildcard);
+        }
+    }
+
     for value_byte in value.iter().copied() {
+        let value_byte_lowercased = value_byte.to_ascii_lowercase();
         for state in old_states.iter() {
             match glob.get(*state) {
                 Some(GlobPart::Literal(glob_byte)) => {
-                    if value_byte == *glob_byte {
+                    if value_byte == *glob_byte || value_byte_lowercased == *glob_byte {
                         new_states.insert(*state + 1);
                     }
                 },
@@ -129,7 +138,7 @@ mod test {
     use std::io::Write;
 
     #[test]
-    fn test() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_1() -> Result<(), Box<dyn std::error::Error>> {
         let ldif = br#"
 dn: cn=foo
 cn: foo
@@ -158,4 +167,28 @@ cn: foo
 
         Ok(())
     }
+
+    #[test]
+    fn test_2() -> Result<(), Box<dyn std::error::Error>> {
+        let ldif = br#"
+dn: cn=MyDriver,cn=driverset1,o=system
+DirXML-ConfigValues:: c3JjUm9vdAo=
+"#;
+        let mut entries: Vec<OwnedEntry> = Vec::new();
+        let token_writer = EntryTokenWriter::new(&mut entries);
+        let mut lexer = Lexer::new(token_writer);
+        let mut wrapper = WriteLocWrapper::new(&mut lexer);
+        wrapper.write_all(ldif)?;
+        wrapper.flush()?;
+
+        let Some(entry) = entries.get(0) else {
+            panic!();
+        };
+        let filter = Filter::parse("(DirXML-ConfigValues=*srcRoot*)")?;
+
+        assert!(filter.is_match(entry));
+
+        Ok(())
+    }
+
 }
