@@ -95,10 +95,12 @@ fn parse_arguments() -> Result<(Vec<String>, u8, OutputFormat), &'static str> {
 
     let matches = command!("lget")
         .disable_colored_help(true)
-        .arg(arg!(<ATTRIBUTES> ... "The attribute type names to get values of."))
+        .about("Parses LDIF entries and outputs attribute values for the given attributes type names. By default, lget will output tab-separated values if multiple attributes are specified.")
+        .arg(arg!(<ATTRIBUTES> ... "The attribute type names to get values of. The attribute type name can be suffixed with .hex or .base64 to get the corresponding encoding. It can futher be suffixed with :- if you want lget to provide a default value for entries that lack the given attribute (this syntax is borrowed from bash)."))
         .arg(
             Arg::new("null-delimit")
                 .short('0')
+                .short_alias('z')
                 .long("null-delimit")
                 .action(clap::ArgAction::SetTrue)
                 .help("Terminate output values with null bytes (0x00) instead of newlines."),
