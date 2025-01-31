@@ -33,7 +33,7 @@ impl AttrSpec {
         }
     }
 
-    pub fn filter_values<'a, 'b>(&'a self, values: impl Iterator<Item = &'b [u8]>) -> Cow<Vec<EntryValue<'b>>> {
+    pub fn filter_values<'a, 'b>(&'a self, values: impl Iterator<Item = &'b [u8]>) -> Cow<'a, Vec<EntryValue<'b>>> {
         let values: Vec<EntryValue<'b>> = values.map(|value: &[u8]| Cow::Owned(Vec::from(value))).collect();
         let mut values: Cow<Vec<EntryValue<'b>>> = Cow::Owned(values);
         for filter in self.value_filters.iter() {
