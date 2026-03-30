@@ -44,11 +44,11 @@ fn write_json_string<W: Write>(w: &mut W, s: &str) -> Result<()> {
                 '\t' => w.write_all(b"\\t")?,
                 c => {
                     for unit in c.encode_utf16(&mut utf16buf).iter() {
-                        write!(w, "\\u{unit:04}")?;
+                        write!(w, "\\u{unit:04x}")?;
                     }
                 }
             }
-            written += 1;
+            written += c.len_utf8();
         }
     }
     if written < s.len() {
@@ -109,6 +109,22 @@ mod test {
         let mut buf = Vec::new();
         write_json_string(&mut buf, "foo\tbar\0baz\r\n")?;
         assert_eq!(String::from_utf8_lossy(&buf), r#""foo\tbar\u0000baz\r\n""#);
+        Ok(())
+    }
+
+    #[test]
+    fn write_json_string_test_d() -> Result<()> {
+        let mut buf = Vec::new();
+        write_json_string(&mut buf, "æøå")?;
+        assert_eq!(String::from_utf8_lossy(&buf), r#""\u00e6\u00f8\u00e5""#);
+        Ok(())
+    }
+
+    #[test]
+    fn write_json_string_test_e() -> Result<()> {
+        let mut buf = Vec::new();
+        write_json_string(&mut buf, "😀")?;
+        assert_eq!(String::from_utf8_lossy(&buf), r#""\ud83d\ude00""#);
         Ok(())
     }
 }
