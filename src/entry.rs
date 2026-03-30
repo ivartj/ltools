@@ -53,7 +53,7 @@ impl<'a, 'b> Entry<'a, 'b> {
         }
     }
 
-    pub fn get_str(&self, attr: &str) -> impl Iterator<Item = Cow<str>> {
+    pub fn get_str(&self, attr: &str) -> impl Iterator<Item = Cow<'_, str>> {
         // lifetimes are confusing
         let values: Vec<Cow<str>> = self.get(attr)
             .map(String::from_utf8_lossy)
@@ -61,7 +61,7 @@ impl<'a, 'b> Entry<'a, 'b> {
         values.into_iter()
     }
 
-    pub fn get_one_str(&self, attr: &str) -> Option<Cow<str>> {
+    pub fn get_one_str(&self, attr: &str) -> Option<Cow<'_, str>> {
         self.get_one(attr)
             .map(String::from_utf8_lossy)
     }

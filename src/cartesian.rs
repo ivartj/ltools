@@ -4,7 +4,7 @@ pub struct CartesianProduct<'a, E> {
     counters: Vec<usize>,
 }
 
-pub fn cartesian_product<E>(vec: &Vec<Vec<E>>) -> CartesianProduct<E> {
+pub fn cartesian_product<E>(vec: &Vec<Vec<E>>) -> CartesianProduct<'_, E> {
     CartesianProduct{
         emptied: vec.is_empty() || vec.iter().any(Vec::is_empty),
         vec,
